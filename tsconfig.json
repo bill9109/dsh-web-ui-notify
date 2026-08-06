@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    // The sources import siblings with explicit .ts/.tsx specifiers (the dsh
+    // house style); tsc rewrites them to .js on emit.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["react"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "declaration": true,
+    "emitDeclarationOnly": false
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,5 @@
+# Build-only symlink into the dsh checkout (scripts/build.mjs creates and drops it)
+node_modules/
+
+# tsc incremental state
+*.tsbuildinfo
