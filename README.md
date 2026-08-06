@@ -22,28 +22,30 @@ DeepSeek Harness Web UI 客户端插件：当工具需要审批、DSH 向你提�
 
 需要 DSH 源码环境（`scripts/install.sh` 装出来的 checkout，默认在 `~/.dsh/source/current`）。下面把它记作 `$DSH`。
 
+插件通过新版 DSH 的 profile 体系安装：插件装进 `~/.dsh/profiles/web/`（web profile 自己的 pnpm 工作区），启用靠 profile 的 patch 层（`~/.dsh/profiles/web/cordis.patch.yml`），**不用改 DSH 仓库里的任何文件**。
+
 ### 1. 装进去
 
 ```sh
 cd $DSH
-pnpm --filter @deepseek-ai/dsh add "github:dsh-external/dsh-web-ui-notify"
+./bin/dsh plugin --profile web add "github:dsh-external/dsh-web-ui-notify"
 ```
 
-也可以先 clone 再用本地路径装：`pnpm --filter @deepseek-ai/dsh add "file:/path/to/dsh-web-ui-notify"`。
+也可以先 clone 再用本地路径装：`./bin/dsh plugin --profile web add "file:/path/to/dsh-web-ui-notify"`。首次运行会自动初始化 web profile（`dsh.plugin` 命令会建好 profile 目录和 pnpm 工作区）。
 
 仓库里带了构建产物（`lib/`），装完直接可用，不需要另外构建。插件零运行时依赖——浏览器侧那三个 `require`（react、react/jsx-runtime、ui-slots）走 DSH 前端自己的模块表，不经过 npm。
 
+> 旧版 DSH（profile 体系之前）用 `pnpm --filter @deepseek-ai/dsh add` + `~/.dsh/config.yaml` 安装；20260806 快照起改为上面的 profile 方式。若你的 DSH 还是旧版，用 README 的历史版本（git 历史里可见）。
+
 ### 2. 启用
 
-编辑 `~/.dsh/config.yaml`（没有就新建），加这几行：
+编辑 `~/.dsh/profiles/web/cordis.patch.yml`，加这几行：
 
 ```yaml
 - insert:
     - id: ui-notify
       name: '@dsh-external/dsh-web-ui-notify'
 ```
-
-这是个人配置覆盖层，**不用改 DSH 仓库里的任何文件**。
 
 ### 3. 重启 Web UI
 
@@ -74,7 +76,7 @@ cd $DSH && ./bin/dsh web
 ## 卸载
 
 ```sh
-cd $DSH && pnpm --filter @deepseek-ai/dsh remove @dsh-external/dsh-web-ui-notify
+cd $DSH && ./bin/dsh plugin --profile web remove @dsh-external/dsh-web-ui-notify
 ```
 
-再把 `~/.dsh/config.yaml` 里那几行删掉，重启 Web UI。
+再把 `~/.dsh/profiles/web/cordis.patch.yml` 里那几行删掉，重启 Web UI。

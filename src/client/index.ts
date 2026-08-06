@@ -21,7 +21,6 @@
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ISessions, ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 import { NotificationSettingsRow } from './NotificationSettingsRow.tsx'
 import { en, NS, zh, type NotifyKey } from './locales.ts'
 import { fireNotification, fireTurnNotification, hiddenNow, notificationUsable } from './notify.ts'
@@ -138,17 +137,17 @@ export function apply(ctx: ClientContext): void {
     unsubSession?.()
   }, 'ui-notify: session subscription')
 
-  ctx.effect(() => {
-    const row = deferRegistration(ctx.slots, 'settings.general.item', NotificationSettingsRow, () =>
-      ctx.slots.register(
-        {
-          name: 'settings.general.item',
-          id: 'web-ui-notify',
-          order: 30,
-          locale: NS,
-        },
-        NotificationSettingsRow,
-      ))
-    return () => { row.dispose() }
-  }, 'ui-notify: settings row registration')
+  // Register the settings row once the `settings.general.item` slot is on the
+  // ledger. slots.inject is the runtime's declaration-aware wait: the callback
+  // runs when the declaration exists (or inside the declaring register call),
+  // and collapses dispose it so a re-declaration re-runs it.
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register(
+    {
+      name: 'settings.general.item',
+      id: 'web-ui-notify',
+      order: 30,
+      locale: NS,
+    },
+    NotificationSettingsRow,
+  ))
 }
