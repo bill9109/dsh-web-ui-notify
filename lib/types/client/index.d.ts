@@ -11,26 +11,25 @@
  *
  * 1. The LIST layer (all sessions) is the sidebar-dot signal: it reports, for
  *    every listed session, a pending-interaction status ('approval' /
- *    'plan-review' / 'question') and a whole-session completion flag. This is
- *    what lets a BACKGROUND session (one you are not looking at) raise a
- *    notification, with its own title and a click that opens it. No payload
- *    (tool name / reason / question text) exists there, so background waits
- *    use generic body copy. Dedupe is per (session, status): a status that
- *    clears then returns (a new wait) notifies again.
+ *    'plan-review' / 'question') and a whole-session completion flag. The
+ *    status is only a TRIGGER: it says "this session has a wait", and the
+ *    plugin then resolves the session binding (minting the scope lazily, same
+ *    as opening would) to read the wait's full payload. This is what lets a
+ *    BACKGROUND session (one you are not looking at) raise a notification —
+ *    with its own title, the rich body (approval reason / question text), and
+ *    a click that opens it.
  *
- * 2. The SNAPSHOT layer (the CURRENT session only) is the composer chain —
- *    where waits "pop up" in the UI, serving the current session only. It
- *    carries the full payload, so current-session notifications keep the rich
- *    body (approval reason, question text), plus per-turn completion with the
- *    final-text excerpt. Dedupe keys are the PendingWait keys
- *    (`a:<rpcId>`/`q:<rpcId>`), stable across mux-open replay, and the
- *    `turnEnds` baseline absorbs a session's past on first open so history is
- *    never re-notified.
+ * 2. The SNAPSHOT layer (the CURRENT session only) handles per-turn
+ *    completion with the final-text excerpt. The `turnEnds` baseline absorbs a
+ *    session's past on first open so history is never re-notified, and replay
+ *    re-presents the same numbers so it stays silent.
  *
- * A cross-layer guard prevents double notifications: when a background wait
- * was already notified by the list layer and the session then becomes
- * current, the snapshot layer consumes the guard and stays silent instead of
- * re-firing the same wait with the rich body.
+ * Dedupe is one set of PendingWait keys (`${sid}:${wait.key}`), shared by
+ * current and background sessions. Wait keys are stable across mux-open
+ * replay, so reconnect (which clears and re-adds the same still-pending
+ * waits) never re-fires — the same "同一件事只通知一次，断线重连不会重复响"
+ * guarantee the wait-key dedupe gave the current session now covers
+ * background sessions too.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client';
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client';
@@ -55,8 +54,8 @@ export declare function turnSummaryOf(nodes: readonly ConversationNode[], turn: 
 export declare const inject: string[];
 /**
  * Client plugin body: register the `web-ui-notify` dictionaries, subscribe
- * to the session list (background events) and the current session's snapshot
- * (rich events), and register the settings row.
+ * to the session list (background waits + completions) and the current
+ * session's snapshot (turn completions), and register the settings row.
  * @param ctx - client root context.
  */
 export declare function apply(ctx: ClientContext): void;

@@ -54,20 +54,16 @@ export declare function fireNotification(wait: PendingInteraction, t: Translate,
  * @returns the constructed Notification (tests assert on it).
  */
 export declare function fireTurnNotification(turn: number, summary: string | undefined, t: Translate, target: NotifyTarget): Notification;
-/** Background-session events reported through the list layer (no per-session payload). */
-export type SessionEventKind = 'approval' | 'question' | 'done';
 /**
- * Build and show the desktop notification for a background-session event:
- * a pending approval, a pending question, or the whole session finishing.
- * The caller gates on {@link hiddenNow} / {@link notificationUsable} and
- * dedupes per (session, kind); this function only renders.
- * @param kind - the event kind (approval/question use the question-copy for
- *   plan-review, which the list reports as a distinct status).
+ * Build and show the desktop notification for a whole background session
+ * finishing ("done" reminder). The caller gates on {@link hiddenNow} /
+ * {@link notificationUsable} and dedupes per session; this function only
+ * renders.
  * @param t - bound locale translate for the plugin namespace.
  * @param target - session label + click-to-jump handler + a unique tag so the
  *   browser never replaces one session's notification with another's.
  * @returns the constructed Notification (tests assert on it).
  */
-export declare function fireSessionNotification(kind: SessionEventKind, t: Translate, target: NotifyTarget & {
+export declare function fireSessionDoneNotification(t: Translate, target: NotifyTarget & {
     tag: string;
 }): Notification;

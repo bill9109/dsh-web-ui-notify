@@ -15,8 +15,6 @@ export declare const zh: {
     'notify.turn.title': string;
     'notify.turn.body': string;
     'notify.sessionDone.title': string;
-    'notify.other.approval.body': string;
-    'notify.other.question.body': string;
     'notify.other.done.body': string;
 };
 /** The web-ui-notify namespace key union. */
@@ -37,8 +35,6 @@ export declare const en: {
     'notify.turn.title': string;
     'notify.turn.body': string;
     'notify.sessionDone.title': string;
-    'notify.other.approval.body': string;
-    'notify.other.question.body': string;
     'notify.other.done.body': string;
 };
 /** Dictionary namespace owned by this plugin. */

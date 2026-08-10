@@ -11,26 +11,25 @@
  *
  * 1. The LIST layer (all sessions) is the sidebar-dot signal: it reports, for
  *    every listed session, a pending-interaction status ('approval' /
- *    'plan-review' / 'question') and a whole-session completion flag. This is
- *    what lets a BACKGROUND session (one you are not looking at) raise a
- *    notification, with its own title and a click that opens it. No payload
- *    (tool name / reason / question text) exists there, so background waits
- *    use generic body copy. Dedupe is per (session, status): a status that
- *    clears then returns (a new wait) notifies again.
+ *    'plan-review' / 'question') and a whole-session completion flag. The
+ *    status is only a TRIGGER: it says "this session has a wait", and the
+ *    plugin then resolves the session binding (minting the scope lazily, same
+ *    as opening would) to read the wait's full payload. This is what lets a
+ *    BACKGROUND session (one you are not looking at) raise a notification —
+ *    with its own title, the rich body (approval reason / question text), and
+ *    a click that opens it.
  *
- * 2. The SNAPSHOT layer (the CURRENT session only) is the composer chain —
- *    where waits "pop up" in the UI, serving the current session only. It
- *    carries the full payload, so current-session notifications keep the rich
- *    body (approval reason, question text), plus per-turn completion with the
- *    final-text excerpt. Dedupe keys are the PendingWait keys
- *    (`a:<rpcId>`/`q:<rpcId>`), stable across mux-open replay, and the
- *    `turnEnds` baseline absorbs a session's past on first open so history is
- *    never re-notified.
+ * 2. The SNAPSHOT layer (the CURRENT session only) handles per-turn
+ *    completion with the final-text excerpt. The `turnEnds` baseline absorbs a
+ *    session's past on first open so history is never re-notified, and replay
+ *    re-presents the same numbers so it stays silent.
  *
- * A cross-layer guard prevents double notifications: when a background wait
- * was already notified by the list layer and the session then becomes
- * current, the snapshot layer consumes the guard and stays silent instead of
- * re-firing the same wait with the rich body.
+ * Dedupe is one set of PendingWait keys (`${sid}:${wait.key}`), shared by
+ * current and background sessions. Wait keys are stable across mux-open
+ * replay, so reconnect (which clears and re-adds the same still-pending
+ * waits) never re-fires — the same "同一件事只通知一次，断线重连不会重复响"
+ * guarantee the wait-key dedupe gave the current session now covers
+ * background sessions too.
  */
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ISessions, ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
@@ -38,7 +37,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { NotificationSettingsRow } from './NotificationSettingsRow.tsx'
 import { en, NS, zh, type NotifyKey } from './locales.ts'
 import {
-  fireNotification, fireSessionNotification, fireTurnNotification, hiddenNow, notificationUsable,
+  fireNotification, fireSessionDoneNotification, fireTurnNotification, hiddenNow, notificationUsable,
 } from './notify.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -82,8 +81,8 @@ export const inject = ['slots', 'sessions', 'locale']
 
 /**
  * Client plugin body: register the `web-ui-notify` dictionaries, subscribe
- * to the session list (background events) and the current session's snapshot
- * (rich events), and register the settings row.
+ * to the session list (background waits + completions) and the current
+ * session's snapshot (turn completions), and register the settings row.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -91,15 +90,11 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   const sessions: ISessions = ctx.sessions
 
-  /** Snapshot-layer PendingWait keys already notified, scoped by session (`${sid}:${key}`, stable across replay). */
-  const notified = new Set<string>()
   /**
-   * Cross-layer guard: pending kinds already notified via the list layer for a
-   * background session. The snapshot layer consumes one entry when it
-   * re-presents the wait (after the session becomes current) and stays silent;
-   * the list layer clears entries once the status is gone.
+   * PendingWait keys already notified, scoped by session (`${sid}:${wait.key}`,
+   * stable across replay, so reconnect and mux-open replay stay silent).
    */
-  const listNotified = new Map<SessionId, Set<'approval' | 'question'>>()
+  const notified = new Set<string>()
   /** Whole-session completions already notified via the list layer. */
   const completedNotified = new Set<SessionId>()
   /** Completed turn numbers already seen per session (baseline absorbed on first scan). */
@@ -120,30 +115,13 @@ export function apply(ctx: ClientContext): void {
     if (sessions.list.getSnapshot().byId[sid] !== undefined) sessions.open(sid)
   }
 
-  /** Scan the current session's snapshot; notify new waits and newly finished turns. */
+  /** Scan the current session's snapshot; notify newly finished turns. */
   const scan = (): void => {
     const current = sessions.list.getSnapshot().current
     if (current === undefined) return
     const session = sessions.binding(current)?.session
     if (session === undefined) return
     const snapshot = session.getSnapshot()
-    for (const wait of snapshot.pending) {
-      const key = `${current}:${wait.key}`
-      if (notified.has(key)) continue
-      notified.add(key)
-      // A list-layer notification may already have covered this wait while the
-      // session was background: consume the guard so the generic body the user
-      // saw is not followed by a duplicate rich one. A later NEW wait of the
-      // same kind notifies normally.
-      const guard = listNotified.get(current)
-      if (guard?.delete(wait.kind) === true) {
-        if (guard.size === 0) listNotified.delete(current)
-        continue
-      }
-      if (hiddenNow() && notificationUsable()) {
-        fireNotification(wait, t, { label: labelOf(current), onOpen: openOf(current) })
-      }
-    }
     // Turn completion: only track once the window is OPEN (history loaded);
     // the first open scan absorbs the turns already finished, so a session's
     // past is never re-notified, and later scans notify only for new numbers.
@@ -167,9 +145,9 @@ export function apply(ctx: ClientContext): void {
   }
 
   /**
-   * Scan the session list for BACKGROUND sessions: pending interactions
-   * (status-level, generic body) and whole-session completion. The current
-   * session is skipped here — the snapshot layer owns it with the rich body.
+   * Scan the session list: notify pending waits (current AND background, from
+   * the session's snapshot payload, deduped by stable wait key) and whole-
+   * session completion (background only, once per finish).
    */
   const scanList = (): void => {
     const list = sessions.list.getSnapshot()
@@ -177,23 +155,20 @@ export function apply(ctx: ClientContext): void {
     for (const sid of list.ids) {
       const summary = list.byId[sid]
       if (summary === undefined) continue
-      const status = summary.pendingInteraction
-      if (sid !== current && status !== undefined) {
-        // plan-review is a binary approve/reject question; report it as a question.
-        const kind = status === 'approval' ? 'approval' : 'question'
-        const guard = listNotified.get(sid)
-        if (guard === undefined || !guard.has(kind)) {
-          if (guard === undefined) listNotified.set(sid, new Set([kind]))
-          else guard.add(kind)
-          if (hiddenNow() && notificationUsable()) {
-            fireSessionNotification(kind, t, {
-              label: labelOf(sid), onOpen: openOf(sid), tag: `${sid}:${kind}`,
-            })
+      // The status is just the "this session has a wait" trigger; the wait
+      // itself (and its payload) comes from the session snapshot.
+      if (summary.pendingInteraction !== undefined) {
+        const session = sessions.binding(sid)?.session
+        if (session !== undefined) {
+          for (const wait of session.getSnapshot().pending) {
+            const key = `${sid}:${wait.key}`
+            if (notified.has(key)) continue
+            notified.add(key)
+            if (hiddenNow() && notificationUsable()) {
+              fireNotification(wait, t, { label: labelOf(sid), onOpen: openOf(sid) })
+            }
           }
         }
-      } else if (status === undefined) {
-        // The wait is gone — a later same-kind wait may notify again.
-        listNotified.delete(sid)
       }
       // Whole-session completion ("done" reminder): notify once per session,
       // cleared when the flag drops (running again / opened / removed).
@@ -201,7 +176,7 @@ export function apply(ctx: ClientContext): void {
         if (!completedNotified.has(sid)) {
           completedNotified.add(sid)
           if (hiddenNow() && notificationUsable()) {
-            fireSessionNotification('done', t, {
+            fireSessionDoneNotification(t, {
               label: labelOf(sid), onOpen: openOf(sid), tag: `${sid}:done`,
             })
           }
@@ -210,10 +185,7 @@ export function apply(ctx: ClientContext): void {
         completedNotified.delete(sid)
       }
     }
-    // Drop guard state for sessions that left the list.
-    for (const sid of listNotified.keys()) {
-      if (list.byId[sid] === undefined) listNotified.delete(sid)
-    }
+    // Drop completion state for sessions that left the list.
     for (const sid of completedNotified) {
       if (list.byId[sid] === undefined) completedNotified.delete(sid)
     }

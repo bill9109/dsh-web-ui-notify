@@ -1,9 +1,10 @@
 /**
  * apply wiring on a real cordis Context + SlotsService + LocaleService with a
- * scripted sessions face: settings-row registration through deferral, the
- * current-session pending scan, desktop-notification firing gated on page
- * visibility, background-session notifications from the list layer, click-to-
- * jump, replay dedupe, the cross-layer guard, and fiber-teardown cleanup.
+ * scripted sessions face: settings-row registration through deferral, pending
+ * waits notified from ANY session (current and background) with rich bodies,
+ * desktop-notification firing gated on page visibility, click-to-jump, replay
+ * dedupe by stable wait key (reconnect-safe), whole-session completion, and
+ * fiber-teardown cleanup.
  */
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -87,16 +88,44 @@ interface ScriptedSummary {
   completed?: boolean
 }
 
-/** Scripted sessions service face: list store (rows + current), binding, and open(). */
+/**
+ * Scripted sessions service face: list store (rows + current), per-session
+ * snapshots (binding works for every listed session, as in the real runtime),
+ * and open(). Setting pending waits also derives the list status, mirroring
+ * the runtime's trackPending.
+ */
 function scriptedSessions() {
-  const session = scriptedSession()
+  const snapshots = new Map<string, ReturnType<typeof scriptedSession>>()
   const listeners = new Set<() => void>()
   let current: SessionId | undefined = SID
   let summaries: Record<string, ScriptedSummary> = { [SID]: { displayTitle: '主会话' } }
+  const fire = (): void => { for (const fn of [...listeners]) fn() }
+  const sessionOf = (id: string): ReturnType<typeof scriptedSession> => {
+    let session = snapshots.get(id)
+    if (session === undefined) {
+      session = scriptedSession()
+      snapshots.set(id, session)
+    }
+    return session
+  }
   const open = vi.fn((id: SessionId) => {
     current = id
-    for (const fn of [...listeners]) fn()
+    fire()
   })
+  /** The list status mirrors the first pending wait's kind (as trackPending does). */
+  const statusOf = (pending: readonly unknown[]): 'approval' | 'question' | undefined => {
+    const kind = (pending[0] as { kind?: string } | undefined)?.kind
+    return kind === 'approval' ? 'approval' : kind === 'question' ? 'question' : undefined
+  }
+  /** Set one session's pending waits; the list status follows the first wait's kind. */
+  const setPendingFor = (id: string, next: readonly unknown[]): void => {
+    sessionOf(id).setPending(next)
+    summaries[id] = {
+      ...(summaries[id] ?? { displayTitle: id }),
+      ...(statusOf(next) === undefined ? { pendingInteraction: undefined } : { pendingInteraction: statusOf(next) }),
+    }
+    fire()
+  }
   return {
     list: {
       subscribe(fn: () => void): () => void {
@@ -108,24 +137,28 @@ function scriptedSessions() {
       },
     },
     binding(id: SessionId): { session: ReturnType<typeof scriptedSession> } | undefined {
-      return id === current ? { session } : undefined
+      return summaries[id] !== undefined ? { session: sessionOf(id) } : undefined
     },
     open,
     setCurrent(next: SessionId | undefined): void {
       current = next
-      for (const fn of [...listeners]) fn()
+      fire()
     },
     /** Upsert one list row (a missing row defaults its display title to the id). */
     setSummary(id: string, patch: Partial<ScriptedSummary>): void {
       summaries[id] = { ...(summaries[id] ?? { displayTitle: id }), ...patch }
-      for (const fn of [...listeners]) fn()
+      fire()
     },
-    setPending(next: readonly unknown[]): void { session.setPending(next) },
-    setTurnEnds(next: ReadonlyMap<number, number>): void { session.setTurnEnds(next) },
-    setNodes(next: readonly unknown[]): void { session.setNodes(next) },
-    setOpenState(next: string): void { session.setOpenState(next) },
-    openWithHistory(next: ReadonlyMap<number, number>): void { session.openWithHistory(next) },
-    session,
+    /** Set one session's pending waits; the list status follows the first wait's kind. */
+    setPendingFor,
+    /** Set the CURRENT session's pending waits (status follows the first wait's kind). */
+    setPending(next: readonly unknown[]): void {
+      setPendingFor(current ?? SID, next)
+    },
+    setTurnEnds(next: ReadonlyMap<number, number>): void { sessionOf(current ?? SID).setTurnEnds(next) },
+    setNodes(next: readonly unknown[]): void { sessionOf(current ?? SID).setNodes(next) },
+    setOpenState(next: string): void { sessionOf(current ?? SID).setOpenState(next) },
+    openWithHistory(next: ReadonlyMap<number, number>): void { sessionOf(current ?? SID).openWithHistory(next) },
   }
 }
 
@@ -280,8 +313,8 @@ describe('apply', () => {
     const sessions = ctx.get('sessions') as unknown as ReturnType<typeof scriptedSessions>
     sessions.setSummary(other, { displayTitle: '会话二' })
     sessions.setCurrent(other)
-    // binding() for the new current returns the same scripted session here,
-    // so a pending wait pushed after the move still reaches the scan.
+    // A pending wait pushed after the move reaches the scan (binding for the
+    // new current resolves, as in the real runtime).
     sessions.setPending([{
       kind: 'question',
       key: 'q:rpc-6',
@@ -358,50 +391,74 @@ describe('apply', () => {
     expect(notify.created).toHaveLength(0)
   })
 
-  it('notifies a background session approval, titled with its session, and jumps there on click', async () => {
+  it('notifies a background session approval with a rich body and jumps there on click', async () => {
     const { ctx, notify, sessions } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
     notify.created.length = 0
-    sessions.setSummary('s2', { displayTitle: '后台会话', pendingInteraction: 'approval' })
+    sessions.setSummary('s2', { displayTitle: '后台会话' })
+    sessions.setPendingFor('s2', [{
+      kind: 'approval',
+      key: 'a:rpc-10',
+      payload: { approvalId: 'ap-10', toolName: 'bash', reason: '需要越权执行' },
+    }])
     expect(notify.created).toHaveLength(1)
     expect(notify.created[0]).toMatchObject({
       title: '后台会话 · 需要审批',
-      options: { body: '该会话正在等待工具审批', tag: 's2:approval', requireInteraction: true },
+      options: { body: '需要越权执行', tag: 'a:rpc-10', requireInteraction: true },
     })
     const created = StubNotification.created[0]!
     created.onclick?.call(created as never, new Event('click'))
     expect(sessions.open).toHaveBeenCalledWith('s2')
   })
 
-  it('reports a background question and a plan-review both as a question', async () => {
+  it('reports a background question and a plan-review both as a question with the question text', async () => {
     const { ctx, notify } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
     notify.created.length = 0
     const sessions = ctx.get('sessions') as unknown as ReturnType<typeof scriptedSessions>
-    sessions.setSummary('s2', { displayTitle: '后台会话', pendingInteraction: 'question' })
+    sessions.setSummary('s2', { displayTitle: '后台会话' })
+    sessions.setPendingFor('s2', [{
+      kind: 'question',
+      key: 'q:rpc-11',
+      payload: { questions: [{ id: 'q11', question: '选择哪个方案？', options: [{ label: 'A' }] }] },
+    }])
     expect(notify.created[0]).toMatchObject({
       title: '后台会话 · 需要你的回答',
-      options: { body: '该会话有一个问题需要你回答', tag: 's2:question' },
+      options: { body: '选择哪个方案？', tag: 'q:rpc-11' },
     })
     // The wait resolves; a new plan-review wait (a binary approve/reject
     // question) notifies with the same question copy.
-    sessions.setSummary('s2', { pendingInteraction: undefined })
+    sessions.setPendingFor('s2', [{
+      kind: 'question',
+      key: 'q:rpc-12',
+      payload: { questions: [{ id: 'q12', question: '是否批准该计划？', options: [{ label: '批准' }, { label: '拒绝' }] }] },
+    }])
     sessions.setSummary('s2', { pendingInteraction: 'plan-review' })
     expect(notify.created).toHaveLength(2)
     expect(notify.created[1]).toMatchObject({ title: '后台会话 · 需要你的回答' })
   })
 
-  it('dedupes a background pending status and re-notifies after the wait clears', async () => {
+  it('dedupes by stable wait key and re-notifies only a genuinely new wait', async () => {
     const { ctx, notify } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
     notify.created.length = 0
     const sessions = ctx.get('sessions') as unknown as ReturnType<typeof scriptedSessions>
-    sessions.setSummary('s2', { displayTitle: '后台会话', pendingInteraction: 'approval' })
-    sessions.setSummary('s2', { pendingInteraction: 'approval' })
+    sessions.setSummary('s2', { displayTitle: '后台会话' })
+    const approval = {
+      kind: 'approval',
+      key: 'a:rpc-13',
+      payload: { approvalId: 'ap-13', toolName: 'bash', reason: '第一次' },
+    }
+    sessions.setPendingFor('s2', [approval])
+    // Same wait re-presented (replay / reconnect) — silent.
+    sessions.setPendingFor('s2', [approval])
     expect(notify.created).toHaveLength(1)
-    // Wait resolved and a NEW approval arrives — notify again.
-    sessions.setSummary('s2', { pendingInteraction: undefined })
-    sessions.setSummary('s2', { pendingInteraction: 'approval' })
+    // A NEW wait (new key) notifies again.
+    sessions.setPendingFor('s2', [{
+      kind: 'approval',
+      key: 'a:rpc-14',
+      payload: { approvalId: 'ap-14', toolName: 'bash', reason: '第二次' },
+    }])
     expect(notify.created).toHaveLength(2)
   })
 
@@ -425,26 +482,25 @@ describe('apply', () => {
     expect(notify.created).toHaveLength(2)
   })
 
-  it('does not double-notify a wait the list layer covered when its session becomes current', async () => {
+  it('does not re-notify the same wait when its session becomes current', async () => {
     const { ctx, notify } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
     notify.created.length = 0
     const sessions = ctx.get('sessions') as unknown as ReturnType<typeof scriptedSessions>
     // Background session s2 gets an approval wait: notified by the list layer.
-    sessions.setSummary('s2', { displayTitle: '后台会话', pendingInteraction: 'approval' })
-    expect(notify.created).toHaveLength(1)
-    // The user opens s2 (still hidden at the moment the click handler runs);
-    // its snapshot now presents the same wait — the cross-layer guard keeps
-    // it silent instead of re-firing with the rich body.
-    sessions.setCurrent('s2')
-    sessions.setPending([{
+    sessions.setSummary('s2', { displayTitle: '后台会话' })
+    sessions.setPendingFor('s2', [{
       kind: 'approval',
       key: 'a:rpc-8',
       payload: { approvalId: 'ap-8', toolName: 'bash', reason: '越权执行' },
     }])
     expect(notify.created).toHaveLength(1)
+    // The user opens s2; its snapshot re-presents the same wait — the shared
+    // wait-key dedupe keeps it silent instead of re-firing.
+    sessions.setCurrent('s2')
+    expect(notify.created).toHaveLength(1)
     // A NEW approval wait on the now-current session notifies normally.
-    sessions.setPending([{
+    sessions.setPendingFor('s2', [{
       kind: 'approval',
       key: 'a:rpc-9',
       payload: { approvalId: 'ap-9', toolName: 'bash', reason: '又一次越权' },
