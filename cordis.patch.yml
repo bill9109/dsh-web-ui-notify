@@ -1,0 +1,10 @@
+# dsh-web-ui-notify bundle patch: mount the desktop-notification plugin.
+#
+# Applied when this bundle appears in a profile's dsh.profile.bundles list.
+# The host half (package root) tracks pending user interactions; the browser
+# half (dsh.client) is discovered automatically through the package's
+# dsh.client declaration + exports["./client"].
+
+- insert:
+    - id: ui-notify
+      name: '@dsh-external/dsh-web-ui-notify'
