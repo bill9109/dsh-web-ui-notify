@@ -15,6 +15,10 @@ export const zh = {
   'notify.question.bodyGeneric': 'Agent 有一个问题需要你回答',
   'notify.turn.title': '轮次完成',
   'notify.turn.body': '第 {turn} 轮已完成',
+  'notify.sessionDone.title': '会话完成',
+  'notify.other.approval.body': '该会话正在等待工具审批',
+  'notify.other.question.body': '该会话有一个问题需要你回答',
+  'notify.other.done.body': '该会话已完成，可以切回查看',
 } satisfies Record<string, string>
 
 /** The web-ui-notify namespace key union. */
@@ -35,6 +39,10 @@ export const en = {
   'notify.question.bodyGeneric': 'The agent has a question for you',
   'notify.turn.title': 'Turn finished',
   'notify.turn.body': 'Turn {turn} completed',
+  'notify.sessionDone.title': 'Session finished',
+  'notify.other.approval.body': 'This session is waiting for a tool approval',
+  'notify.other.question.body': 'This session has a question for you',
+  'notify.other.done.body': 'This session finished — switch over to see the result',
 } satisfies Record<NotifyKey, string>
 
 /** Dictionary namespace owned by this plugin. */

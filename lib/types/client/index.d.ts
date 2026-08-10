@@ -1,22 +1,36 @@
 /**
  * Approval-notification plugin, browser half: when an approval or question
- * wait lands on the current session, or a turn finishes, while the page is
- * hidden (the user is on another tab), show a desktop Notification. A
+ * wait lands, or a turn finishes, while the page is hidden (the user is on
+ * another tab), show a desktop Notification. Titles name the source session,
+ * and clicking a notification jumps to that exact conversation. A
  * General-settings row exposes the permission request button — the
  * user-gesture entry point the browser requires before `new Notification`
  * works.
  *
- * Observation model: the composer chain is where approval/question waits
- * "pop up" in the UI, and it serves the CURRENT session only. Subscribing to
- * the current session's conversation snapshot therefore matches the pop-up
- * semantics exactly — non-current sessions' waits surface only once opened
- * (their buffered frames replay), which is also when a notification is
- * meaningful. Dedupe keys are the PendingWait keys (`a:<rpcId>`/`q:<rpcId>`),
- * stable across mux-open replay by construction. Turn completion is read off
- * the snapshot's `turnEnds` map: the first scan of a session absorbs the
- * current map as baseline (no history spam), later scans notify only for
- * turn numbers not seen before — replay re-presents the same numbers, so it
- * stays silent.
+ * Observation model — two layers:
+ *
+ * 1. The LIST layer (all sessions) is the sidebar-dot signal: it reports, for
+ *    every listed session, a pending-interaction status ('approval' /
+ *    'plan-review' / 'question') and a whole-session completion flag. This is
+ *    what lets a BACKGROUND session (one you are not looking at) raise a
+ *    notification, with its own title and a click that opens it. No payload
+ *    (tool name / reason / question text) exists there, so background waits
+ *    use generic body copy. Dedupe is per (session, status): a status that
+ *    clears then returns (a new wait) notifies again.
+ *
+ * 2. The SNAPSHOT layer (the CURRENT session only) is the composer chain —
+ *    where waits "pop up" in the UI, serving the current session only. It
+ *    carries the full payload, so current-session notifications keep the rich
+ *    body (approval reason, question text), plus per-turn completion with the
+ *    final-text excerpt. Dedupe keys are the PendingWait keys
+ *    (`a:<rpcId>`/`q:<rpcId>`), stable across mux-open replay, and the
+ *    `turnEnds` baseline absorbs a session's past on first open so history is
+ *    never re-notified.
+ *
+ * A cross-layer guard prevents double notifications: when a background wait
+ * was already notified by the list layer and the session then becomes
+ * current, the snapshot layer consumes the guard and stays silent instead of
+ * re-firing the same wait with the rich body.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client';
 import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client';
@@ -41,8 +55,8 @@ export declare function turnSummaryOf(nodes: readonly ConversationNode[], turn: 
 export declare const inject: string[];
 /**
  * Client plugin body: register the `web-ui-notify` dictionaries, subscribe
- * to the current session's pending waits and turn completions, and register
- * the settings row.
+ * to the session list (background events) and the current session's snapshot
+ * (rich events), and register the settings row.
  * @param ctx - client root context.
  */
 export declare function apply(ctx: ClientContext): void;

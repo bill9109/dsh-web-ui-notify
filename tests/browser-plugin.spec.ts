@@ -2,7 +2,8 @@
  * apply wiring on a real cordis Context + SlotsService + LocaleService with a
  * scripted sessions face: settings-row registration through deferral, the
  * current-session pending scan, desktop-notification firing gated on page
- * visibility, replay dedupe, and fiber-teardown cleanup.
+ * visibility, background-session notifications from the list layer, click-to-
+ * jump, replay dedupe, the cross-layer guard, and fiber-teardown cleanup.
  */
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -79,24 +80,44 @@ function scriptedSession() {
   }
 }
 
-/** Scripted sessions service face: list store + current-session binding. */
+/** One scripted list row: the fields the plugin reads off the list snapshot. */
+interface ScriptedSummary {
+  displayTitle: string
+  pendingInteraction?: 'approval' | 'plan-review' | 'question'
+  completed?: boolean
+}
+
+/** Scripted sessions service face: list store (rows + current), binding, and open(). */
 function scriptedSessions() {
   const session = scriptedSession()
   const listeners = new Set<() => void>()
   let current: SessionId | undefined = SID
+  let summaries: Record<string, ScriptedSummary> = { [SID]: { displayTitle: '主会话' } }
+  const open = vi.fn((id: SessionId) => {
+    current = id
+    for (const fn of [...listeners]) fn()
+  })
   return {
     list: {
       subscribe(fn: () => void): () => void {
         listeners.add(fn)
         return () => { listeners.delete(fn) }
       },
-      getSnapshot(): { current: SessionId | undefined } { return { current } },
+      getSnapshot(): { ids: SessionId[]; byId: Record<string, ScriptedSummary>; current: SessionId | undefined } {
+        return { ids: Object.keys(summaries) as SessionId[], byId: summaries, current }
+      },
     },
     binding(id: SessionId): { session: ReturnType<typeof scriptedSession> } | undefined {
       return id === current ? { session } : undefined
     },
+    open,
     setCurrent(next: SessionId | undefined): void {
       current = next
+      for (const fn of [...listeners]) fn()
+    },
+    /** Upsert one list row (a missing row defaults its display title to the id). */
+    setSummary(id: string, patch: Partial<ScriptedSummary>): void {
+      summaries[id] = { ...(summaries[id] ?? { displayTitle: id }), ...patch }
       for (const fn of [...listeners]) fn()
     },
     setPending(next: readonly unknown[]): void { session.setPending(next) },
@@ -152,7 +173,7 @@ describe('apply', () => {
     expect(slots.entries('settings.general.item').some(e => e.component === NotificationSettingsRow)).toBe(false)
   })
 
-  it('notifies an approval wait on the current session while hidden', async () => {
+  it('notifies an approval wait on the current session while hidden, titled with the session', async () => {
     const { ctx, notify } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
     notify.created.length = 0
@@ -165,7 +186,7 @@ describe('apply', () => {
     sessions.setPending([approval])
     expect(notify.created).toHaveLength(1)
     expect(notify.created[0]).toMatchObject({
-      title: '需要审批',
+      title: '主会话 · 需要审批',
       options: { body: '需要越权执行', tag: 'a:rpc-1', requireInteraction: true },
     })
   })
@@ -183,7 +204,7 @@ describe('apply', () => {
     sessions.setPending([question])
     expect(notify.created).toHaveLength(1)
     expect(notify.created[0]).toMatchObject({
-      title: '需要你的回答',
+      title: '主会话 · 需要你的回答',
       options: { body: '选择哪个方案？', tag: 'q:rpc-2' },
     })
   })
@@ -233,8 +254,8 @@ describe('apply', () => {
     expect(notify.created).toHaveLength(0)
   })
 
-  it('clicking the notification focuses the page and closes it', async () => {
-    const { ctx, notify } = await bench()
+  it('clicking the notification focuses the page, jumps to the session, and closes it', async () => {
+    const { ctx, notify, sessions } = await bench()
     const focus = vi.spyOn(window, 'focus')
     await ctx.plugin({ inject: [...inject], apply }).await()
     notify.created.length = 0
@@ -243,11 +264,11 @@ describe('apply', () => {
       key: 'a:rpc-7',
       payload: { approvalId: 'ap-7', toolName: 'bash', reason: '越权执行' },
     }
-    const sessions = ctx.get('sessions') as unknown as ReturnType<typeof scriptedSessions>
     sessions.setPending([approval])
     const created = StubNotification.created[0]!
     created.onclick?.call(created as never, new Event('click'))
     expect(focus).toHaveBeenCalledTimes(1)
+    expect(sessions.open).toHaveBeenCalledWith(SID)
     expect(created.closed).toBe(true)
   })
 
@@ -257,6 +278,7 @@ describe('apply', () => {
     notify.created.length = 0
     const other = 's2' as SessionId
     const sessions = ctx.get('sessions') as unknown as ReturnType<typeof scriptedSessions>
+    sessions.setSummary(other, { displayTitle: '会话二' })
     sessions.setCurrent(other)
     // binding() for the new current returns the same scripted session here,
     // so a pending wait pushed after the move still reaches the scan.
@@ -266,6 +288,7 @@ describe('apply', () => {
       payload: { questions: [{ id: 'q6', question: '新会话的问题' }] },
     }])
     expect(notify.created).toHaveLength(1)
+    expect(notify.created[0]).toMatchObject({ title: '会话二 · 需要你的回答' })
   })
 
   it('baselines an opened session history, then notifies only new turns', async () => {
@@ -283,7 +306,7 @@ describe('apply', () => {
     sessions.setTurnEnds(new Map([[1, 10], [2, 20], [3, 30]]))
     expect(notify.created).toHaveLength(1)
     expect(notify.created[0]).toMatchObject({
-      title: '轮次完成',
+      title: '主会话 · 轮次完成',
       options: { body: '这是第三轮的最终回答。', tag: 'turn:3', requireInteraction: true },
     })
   })
@@ -299,7 +322,7 @@ describe('apply', () => {
     sessions.setNodes([{ kind: 'assistant', turn: 1, blocks: [{ kind: 'tool-call', callId: 'c1', name: 'bash', argsRaw: '{}' }] }])
     sessions.setTurnEnds(new Map([[1, 10]]))
     expect(notify.created[0]).toMatchObject({
-      title: '轮次完成',
+      title: '主会话 · 轮次完成',
       options: { body: '第 1 轮已完成', tag: 'turn:1' },
     })
   })
@@ -333,5 +356,100 @@ describe('apply', () => {
     sessions.setTurnEnds(new Map([[1, 10]]))
     sessions.setTurnEnds(new Map([[1, 10], [2, 20]]))
     expect(notify.created).toHaveLength(0)
+  })
+
+  it('notifies a background session approval, titled with its session, and jumps there on click', async () => {
+    const { ctx, notify, sessions } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    notify.created.length = 0
+    sessions.setSummary('s2', { displayTitle: '后台会话', pendingInteraction: 'approval' })
+    expect(notify.created).toHaveLength(1)
+    expect(notify.created[0]).toMatchObject({
+      title: '后台会话 · 需要审批',
+      options: { body: '该会话正在等待工具审批', tag: 's2:approval', requireInteraction: true },
+    })
+    const created = StubNotification.created[0]!
+    created.onclick?.call(created as never, new Event('click'))
+    expect(sessions.open).toHaveBeenCalledWith('s2')
+  })
+
+  it('reports a background question and a plan-review both as a question', async () => {
+    const { ctx, notify } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    notify.created.length = 0
+    const sessions = ctx.get('sessions') as unknown as ReturnType<typeof scriptedSessions>
+    sessions.setSummary('s2', { displayTitle: '后台会话', pendingInteraction: 'question' })
+    expect(notify.created[0]).toMatchObject({
+      title: '后台会话 · 需要你的回答',
+      options: { body: '该会话有一个问题需要你回答', tag: 's2:question' },
+    })
+    // The wait resolves; a new plan-review wait (a binary approve/reject
+    // question) notifies with the same question copy.
+    sessions.setSummary('s2', { pendingInteraction: undefined })
+    sessions.setSummary('s2', { pendingInteraction: 'plan-review' })
+    expect(notify.created).toHaveLength(2)
+    expect(notify.created[1]).toMatchObject({ title: '后台会话 · 需要你的回答' })
+  })
+
+  it('dedupes a background pending status and re-notifies after the wait clears', async () => {
+    const { ctx, notify } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    notify.created.length = 0
+    const sessions = ctx.get('sessions') as unknown as ReturnType<typeof scriptedSessions>
+    sessions.setSummary('s2', { displayTitle: '后台会话', pendingInteraction: 'approval' })
+    sessions.setSummary('s2', { pendingInteraction: 'approval' })
+    expect(notify.created).toHaveLength(1)
+    // Wait resolved and a NEW approval arrives — notify again.
+    sessions.setSummary('s2', { pendingInteraction: undefined })
+    sessions.setSummary('s2', { pendingInteraction: 'approval' })
+    expect(notify.created).toHaveLength(2)
+  })
+
+  it('notifies a background session completion once per finish', async () => {
+    const { ctx, notify } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    notify.created.length = 0
+    const sessions = ctx.get('sessions') as unknown as ReturnType<typeof scriptedSessions>
+    sessions.setSummary('s2', { displayTitle: '后台会话', completed: true })
+    expect(notify.created).toHaveLength(1)
+    expect(notify.created[0]).toMatchObject({
+      title: '后台会话 · 会话完成',
+      options: { body: '该会话已完成，可以切回查看', tag: 's2:done', requireInteraction: true },
+    })
+    // Still completed — no repeat.
+    sessions.setSummary('s2', { completed: true })
+    expect(notify.created).toHaveLength(1)
+    // It starts running again, then finishes again — notify once more.
+    sessions.setSummary('s2', { completed: false })
+    sessions.setSummary('s2', { completed: true })
+    expect(notify.created).toHaveLength(2)
+  })
+
+  it('does not double-notify a wait the list layer covered when its session becomes current', async () => {
+    const { ctx, notify } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    notify.created.length = 0
+    const sessions = ctx.get('sessions') as unknown as ReturnType<typeof scriptedSessions>
+    // Background session s2 gets an approval wait: notified by the list layer.
+    sessions.setSummary('s2', { displayTitle: '后台会话', pendingInteraction: 'approval' })
+    expect(notify.created).toHaveLength(1)
+    // The user opens s2 (still hidden at the moment the click handler runs);
+    // its snapshot now presents the same wait — the cross-layer guard keeps
+    // it silent instead of re-firing with the rich body.
+    sessions.setCurrent('s2')
+    sessions.setPending([{
+      kind: 'approval',
+      key: 'a:rpc-8',
+      payload: { approvalId: 'ap-8', toolName: 'bash', reason: '越权执行' },
+    }])
+    expect(notify.created).toHaveLength(1)
+    // A NEW approval wait on the now-current session notifies normally.
+    sessions.setPending([{
+      kind: 'approval',
+      key: 'a:rpc-9',
+      payload: { approvalId: 'ap-9', toolName: 'bash', reason: '又一次越权' },
+    }])
+    expect(notify.created).toHaveLength(2)
+    expect(notify.created[1]).toMatchObject({ title: '后台会话 · 需要审批' })
   })
 })
