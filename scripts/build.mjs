@@ -77,6 +77,7 @@ try {
     '@deepseek-ai/dsh-client-runtime',
     '@deepseek-ai/dsh-client-ui-slots',
     '@deepseek-ai/dsh-client-locale',
+    '@deepseek-ai/dsh-client-ui-settings',
   ]) {
     const target = join(scope, name.slice(name.lastIndexOf('/') + 1))
     if (existsSync(target)) continue

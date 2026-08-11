@@ -23,11 +23,12 @@ export default defineConfig({
     alias: [
       { find: '@deepseek-ai/dsh-client-runtime/client', replacement: pkg('client', 'runtime', 'src', 'client') },
       { find: '@deepseek-ai/dsh-client-locale/client', replacement: pkg('client', 'locale', 'src', 'client') },
+      { find: '@deepseek-ai/dsh-client-ui-settings/client', replacement: pkg('client', 'ui-settings', 'src', 'client') },
       { find: '@deepseek-ai/dsh-client-test-runtime', replacement: pkg('client', 'test-runtime', 'src') },
       { find: '@deepseek-ai/dsh-client-runtime', replacement: pkg('client', 'runtime', 'src') },
       { find: '@deepseek-ai/dsh-client-ui-slots', replacement: pkg('client', 'ui-slots', 'src') },
       { find: '@deepseek-ai/dsh-client-locale', replacement: pkg('client', 'locale', 'src') },
-      { find: 'cordis', replacement: join(checkout, 'vendor', 'cordis', 'src') },
+      { find: '@deepseek-ai/cordis', replacement: join(checkout, 'vendor', 'cordis', 'src') },
     ],
   },
   test: {

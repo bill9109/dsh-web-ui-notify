@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-web-ui-notify",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "审批/提问/轮次完成桌面通知：DSH 需要人工确认权限、或者一轮干完了，而你在浏览其他标签页时，弹出系统通知",
   "type": "module",
   "main": "./lib/index.js",

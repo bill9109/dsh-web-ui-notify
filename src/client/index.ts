@@ -34,6 +34,8 @@
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ISessions, ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: pulls the settings shell's SlotMap merge (the 'settings.general.item' entry).
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { NotificationSettingsRow } from './NotificationSettingsRow.tsx'
 import { en, NS, zh, type NotifyKey } from './locales.ts'
 import {
