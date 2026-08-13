@@ -21,7 +21,7 @@
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dsh-external/dsh-web-ui-notify.git"
+    "url": "git+https://github.com/bill9109/dsh-web-ui-notify.git"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
