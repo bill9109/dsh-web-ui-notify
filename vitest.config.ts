@@ -24,7 +24,9 @@ export default defineConfig({
       { find: '@deepseek-ai/dsh-client-runtime/client', replacement: pkg('client', 'runtime', 'src', 'client') },
       { find: '@deepseek-ai/dsh-client-locale/client', replacement: pkg('client', 'locale', 'src', 'client') },
       { find: '@deepseek-ai/dsh-client-ui-settings/client', replacement: pkg('client', 'ui-settings', 'src', 'client') },
-      { find: '@deepseek-ai/dsh-client-test-runtime', replacement: pkg('client', 'test-runtime', 'src') },
+      // dsh-client-test-runtime moved from packages/client/test-runtime to
+      // packages/test-support/client-runtime in the 20260812 snapshots.
+      { find: '@deepseek-ai/dsh-client-test-runtime', replacement: pkg('test-support', 'client-runtime', 'src') },
       { find: '@deepseek-ai/dsh-client-runtime', replacement: pkg('client', 'runtime', 'src') },
       { find: '@deepseek-ai/dsh-client-ui-slots', replacement: pkg('client', 'ui-slots', 'src') },
       { find: '@deepseek-ai/dsh-client-locale', replacement: pkg('client', 'locale', 'src') },

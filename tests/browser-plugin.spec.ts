@@ -1,5 +1,5 @@
 /**
- * apply wiring on a real cordis Context + SlotsService + LocaleService with a
+ * apply wiring on a real cordis Context + SlotRegistry + LocaleRuntime with a
  * scripted sessions face: settings-row registration through deferral, pending
  * waits notified from ANY session (current and background) with rich bodies,
  * desktop-notification firing gated on page visibility, click-to-jump, replay
@@ -9,9 +9,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { NotificationSettingsRow } from '../src/client/NotificationSettingsRow.tsx'
 import { apply, inject } from '../src/client/index.ts'
 
@@ -165,8 +165,8 @@ function scriptedSessions() {
 /** Assemble a bench: real cordis ctx with slots/locale provided and sessions scripted. */
 async function bench() {
   const ctx = new Context()
-  await ctx.plugin(SlotsService).await()
-  const slots = ctx.get('slots') as SlotsService
+  await ctx.plugin(SlotRegistry).await()
+  const slots = ctx.get('slots') as SlotRegistry
   // The settings.general.item hole exists only while its declaring entry is live.
   slots.register(
     { name: 'root', children: { 'settings.general.item': { kind: 'list', scope: 'root' } } } as never,
@@ -174,7 +174,7 @@ async function bench() {
   )
   const sessions = scriptedSessions()
   ctx.provide('sessions', sessions as unknown as ISessions)
-  const locale = new LocaleService(ctx)
+  const locale = new LocaleRuntime(ctx)
   locale.setLocale('zh')
   ctx.provide('locale', locale)
   Object.assign(globalThis, { Notification: StubNotification })
