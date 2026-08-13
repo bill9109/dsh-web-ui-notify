@@ -62,7 +62,7 @@ The settings row has four states:
 ## Uninstall
 
 ```sh
-dsh plugin --profile web remove @dsh-external/dsh-web-ui-notify
+dsh plugin --profile web remove @bill9109/dsh-web-ui-notify
 ```
 
 Internally the command runs `pnpm remove <pkg>` in the profile directory and removes it from `dsh.profile.bundles`. After uninstalling, restart web and hard-refresh the browser.

@@ -7,4 +7,4 @@
 
 - insert:
     - id: ui-notify
-      name: '@dsh-external/dsh-web-ui-notify'
+      name: '@bill9109/dsh-web-ui-notify'
