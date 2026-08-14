@@ -3,7 +3,7 @@
 ## Start here
 
 - Read the [README](README.md) for installation, configuration, usage, and troubleshooting.
-- Search existing [issues](https://github.com/bill9109/dsh-web-ui-notify/issues) and [pull requests](https://github.com/bill9109/dsh-web-ui-notify/pulls) before opening a duplicate.
+- Search existing [issues](https://github.com/omdsh-dev/dsh-web-ui-notify/issues) and [pull requests](https://github.com/omdsh-dev/dsh-web-ui-notify/pulls) before opening a duplicate.
 
 ## Where to ask
 

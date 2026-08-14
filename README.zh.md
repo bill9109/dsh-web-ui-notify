@@ -1,11 +1,11 @@
 # dsh-web-ui-notify — 审批/提问/轮次完成桌面通知插件
 
-[![Release v0.1.3](https://img.shields.io/badge/release-v0.1.3-5B4CF0?style=flat-square)](https://github.com/bill9109/dsh-web-ui-notify/releases/tag/v0.1.3)
+[![Release v0.1.4](https://img.shields.io/badge/release-v0.1.4-5B4CF0?style=flat-square)](https://github.com/omdsh-dev/dsh-web-ui-notify/releases/tag/v0.1.4)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-0B7285?style=flat-square)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E20%20%7C%20%3E%3D22-339933?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
 [![DSH profiles](https://img.shields.io/badge/DSH-Web-5B4CF0?style=flat-square)](cordis.patch.yml)
 
-**安装：** `dsh plugin --profile web add github:bill9109/dsh-web-ui-notify`
+**安装：** `dsh plugin --profile web add github:omdsh-dev/dsh-web-ui-notify`
 
 **DeepSeek Harness Web UI 客户端插件：当工具需要审批、DSH 向你提问、或一轮干完了，而你正在浏览其他标签页时，弹出系统桌面通知——DSH 不等你，你也不用等。**
 
@@ -32,7 +32,7 @@
 插件是 DSH **bundle**（`package.json` 声明 `dsh.bundle` + `dsh.client`），通过标准的 `dsh plugin` 机制安装到 web profile，**无需修改 DSH 源码、无需手写 patch**：
 
 ```sh
-dsh plugin --profile web add github:bill9109/dsh-web-ui-notify
+dsh plugin --profile web add github:omdsh-dev/dsh-web-ui-notify
 ```
 
 命令内部 = 在 profile 目录执行 `pnpm add <spec>` + 自动把声明了 `dsh.bundle` 的包追加进 `dsh.profile.bundles`。也可以先 clone 再用本地路径安装（开发调试，改完重新构建即生效）：
@@ -50,7 +50,7 @@ dsh plugin --profile web add /path/to/dsh-web-ui-notify
 ### 升级
 
 ```sh
-dsh plugin --profile web update github:bill9109/dsh-web-ui-notify
+dsh plugin --profile web update github:omdsh-dev/dsh-web-ui-notify
 ```
 
 本地路径安装则对替换后的 checkout 重新执行 `add`。用户设置（设置 → 通用 的开关）存在 profile 的 Settings provider 里，升级不丢。
@@ -58,7 +58,7 @@ dsh plugin --profile web update github:bill9109/dsh-web-ui-notify
 ### 卸载
 
 ```sh
-dsh plugin --profile web remove @bill9109/dsh-web-ui-notify
+dsh plugin --profile web remove @omdsh-dev/dsh-web-ui-notify
 ```
 
 命令内部 = 在 profile 目录执行 `pnpm remove <pkg>` + 自动把它从 `dsh.profile.bundles` 移除。卸载后重启 web 并硬刷新浏览器。
@@ -104,7 +104,7 @@ pnpm test          # vitest：browser-plugin + settings-row 套件
 
 ## 社区与关于
 
-- 可复现的 bug、聚焦的功能请求和使用问题，走 [GitHub Issues](https://github.com/bill9109/dsh-web-ui-notify/issues)。
+- 可复现的 bug、聚焦的功能请求和使用问题，走 [GitHub Issues](https://github.com/omdsh-dev/dsh-web-ui-notify/issues)。
 - 提变更前先读 [CONTRIBUTING.md](CONTRIBUTING.md)；安全问题通过 [SECURITY.md](SECURITY.md) 私有上报。
 - 版本与兼容性说明见 [CHANGELOG.md](CHANGELOG.md)。
 

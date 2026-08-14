@@ -1,11 +1,11 @@
 # dsh-web-ui-notify — Desktop notifications for approvals / questions / turn completion
 
-[![Release v0.1.3](https://img.shields.io/badge/release-v0.1.3-5B4CF0?style=flat-square)](https://github.com/bill9109/dsh-web-ui-notify/releases/tag/v0.1.3)
+[![Release v0.1.4](https://img.shields.io/badge/release-v0.1.4-5B4CF0?style=flat-square)](https://github.com/omdsh-dev/dsh-web-ui-notify/releases/tag/v0.1.4)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-0B7285?style=flat-square)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E20%20%7C%20%3E%3D22-339933?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
 [![DSH profiles](https://img.shields.io/badge/DSH-Web-5B4CF0?style=flat-square)](cordis.patch.yml)
 
-**Install:** `dsh plugin --profile web add github:bill9109/dsh-web-ui-notify`
+**Install:** `dsh plugin --profile web add github:omdsh-dev/dsh-web-ui-notify`
 
 **A DeepSeek Harness Web UI client plugin: when a tool needs approval, DSH asks you a question, or a turn finishes while you are looking at another tab, it pops a system desktop notification — so neither DSH nor you end up waiting.**
 
@@ -32,7 +32,7 @@ While you browse other pages, DSH needs human confirmation (tool approvals, ques
 The plugin is a DSH **bundle** (`package.json` declares `dsh.bundle` + `dsh.client`). Install it into the `web` profile with the standard `dsh plugin` mechanism — **no DSH source changes and no hand-written patch**:
 
 ```sh
-dsh plugin --profile web add github:bill9109/dsh-web-ui-notify
+dsh plugin --profile web add github:omdsh-dev/dsh-web-ui-notify
 ```
 
 Internally the command runs `pnpm add <spec>` in the profile directory and automatically appends packages that declare `dsh.bundle` to `dsh.profile.bundles`. You can also clone it and install from a local path (for development — rebuild and it takes effect):
@@ -50,7 +50,7 @@ After installing, **restart the Web UI** (the way you normally start DSH) and re
 ### Upgrade
 
 ```sh
-dsh plugin --profile web update github:bill9109/dsh-web-ui-notify
+dsh plugin --profile web update github:omdsh-dev/dsh-web-ui-notify
 ```
 
 For a local-path installation, run `add` again against the replacement checkout. User settings (the Settings → General toggle) live in the profile's Settings provider and survive upgrades.
@@ -58,7 +58,7 @@ For a local-path installation, run `add` again against the replacement checkout.
 ### Uninstall
 
 ```sh
-dsh plugin --profile web remove @bill9109/dsh-web-ui-notify
+dsh plugin --profile web remove @omdsh-dev/dsh-web-ui-notify
 ```
 
 The command runs `pnpm remove <pkg>` in the profile directory and removes it from `dsh.profile.bundles`. After uninstalling, restart web and hard-refresh the browser.
@@ -104,7 +104,7 @@ pnpm test          # vitest: browser-plugin + settings-row suites
 
 ## Community and About
 
-- Use [GitHub Issues](https://github.com/bill9109/dsh-web-ui-notify/issues) for reproducible bugs, focused feature requests, and usage questions.
+- Use [GitHub Issues](https://github.com/omdsh-dev/dsh-web-ui-notify/issues) for reproducible bugs, focused feature requests, and usage questions.
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes; report vulnerabilities privately via [SECURITY.md](SECURITY.md).
 - Follow releases and compatibility notes in [CHANGELOG.md](CHANGELOG.md).
 

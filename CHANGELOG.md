@@ -4,6 +4,12 @@ All notable user-facing changes to dsh-web-ui-notify are documented in this file
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-14
+
+### Changed
+
+- Migrated the repository to the `omdsh-dev` GitHub organization: the package scope is now `@omdsh-dev/dsh-web-ui-notify`, and the repository, homepage, bugs, install/update/remove commands, and community links all point at `github.com/omdsh-dev/dsh-web-ui-notify`. The built `lib/` was re-registered under the new name.
+
 ## [0.1.3] - 2026-08-14
 
 ### Changed

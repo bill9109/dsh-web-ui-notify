@@ -1,6 +1,6 @@
 {
-  "name": "@bill9109/dsh-web-ui-notify",
-  "version": "0.1.3",
+  "name": "@omdsh-dev/dsh-web-ui-notify",
+  "version": "0.1.4",
   "description": "Desktop notifications for DeepSeek Harness approvals, questions, and turn completion — so neither DSH nor you end up waiting while you browse another tab.",
   "keywords": [
     "deepseek",
@@ -40,11 +40,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bill9109/dsh-web-ui-notify.git"
+    "url": "git+https://github.com/omdsh-dev/dsh-web-ui-notify.git"
   },
-  "homepage": "https://github.com/bill9109/dsh-web-ui-notify#readme",
+  "homepage": "https://github.com/omdsh-dev/dsh-web-ui-notify#readme",
   "bugs": {
-    "url": "https://github.com/bill9109/dsh-web-ui-notify/issues"
+    "url": "https://github.com/omdsh-dev/dsh-web-ui-notify/issues"
   },
   "scripts": {
     "build": "node scripts/build.mjs",

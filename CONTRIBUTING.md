@@ -5,7 +5,7 @@ Focused fixes, tests, and documentation changes are welcome. By participating, y
 ## Before you start
 
 1. Read [README.md](README.md) — install, usage, and troubleshooting.
-2. Search existing [issues](https://github.com/bill9109/dsh-web-ui-notify/issues) and pull requests before opening duplicate work.
+2. Search existing [issues](https://github.com/omdsh-dev/dsh-web-ui-notify/issues) and pull requests before opening duplicate work.
 3. Open an issue before changing the notification surface (which events notify, the settings row, locales) or the bundle manifest.
 4. Keep each change narrowly scoped. Do not mix a feature or fix with unrelated refactoring or generated-output churn.
 

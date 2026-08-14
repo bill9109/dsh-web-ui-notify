@@ -9,4 +9,4 @@ if (checkout === undefined) {
 }
 const { clientBundle } = await import(`${checkout}/packages/client/tsdown.client.ts`)
 
-export default clientBundle('@bill9109/dsh-web-ui-notify', ['lib/types/index.js'])
+export default clientBundle('@omdsh-dev/dsh-web-ui-notify', ['lib/types/index.js'])

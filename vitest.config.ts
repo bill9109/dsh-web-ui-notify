@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
-const checkout = resolve(process.env.DSH_CHECKOUT ?? '../test-bill9109')
+const checkout = resolve(process.env.DSH_CHECKOUT ?? '../test-omdsh-dev')
 if (!existsSync(join(checkout, 'packages', 'client', 'runtime', 'src'))) {
   throw new Error(`vitest.config.ts: ${checkout} is not a dsh checkout — set DSH_CHECKOUT=/path/to/dsh`)
 }
