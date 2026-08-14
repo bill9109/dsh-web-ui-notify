@@ -1,71 +1,112 @@
-# dsh-web-ui-notify — 审批/提问/轮次完成桌面通知插件
+# dsh-web-ui-notify — Desktop notifications for approvals / questions / turn completion
 
-[English](README.en.md) | 中文
+[![Release v0.1.3](https://img.shields.io/badge/release-v0.1.3-5B4CF0?style=flat-square)](https://github.com/bill9109/dsh-web-ui-notify/releases/tag/v0.1.3)
+[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-0B7285?style=flat-square)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-%5E20%20%7C%20%3E%3D22-339933?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
+[![DSH profiles](https://img.shields.io/badge/DSH-Web-5B4CF0?style=flat-square)](cordis.patch.yml)
 
-DeepSeek Harness Web UI 客户端插件：当工具需要审批、DSH 向你提问、或一轮干完了，而你正在浏览其他标签页时，弹出系统桌面通知，避免 DSH 白等、也避免你白等。
+**Install:** `dsh plugin --profile web add github:bill9109/dsh-web-ui-notify`
 
-许可证 BSD-3-Clause · [GitHub](https://github.com/bill9109/dsh-web-ui-notify)
+**A DeepSeek Harness Web UI client plugin: when a tool needs approval, DSH asks you a question, or a turn finishes while you are looking at another tab, it pops a system desktop notification — so neither DSH nor you end up waiting.**
 
-## 实现能力
+[English](README.md) | [中文](README.zh.md)
 
-在浏览其他网页过程中，DSH 需要人工确认权限、或者干完了一轮活，会通过系统通知提醒你。
+## Why this exists
 
-- **当前会话介入时通知**：工具审批和 DSH 提问，通知正文带上下文（审批显示越权原因，提问显示问题原文）
-- **后台会话也通知**：没在看的会话需要审批/提问时同样弹通知（正文带上下文，和当前会话一致），整个会话干完也会通知；点一下直接跳到那个会话
-- **干完一轮也通知**：当前会话每轮干完都通知，正文是这一轮最终回答的开头（80 字以内），纯工具轮没有最终回答时显示轮次号。不管这轮是正常结束、被中断还是出错，都会通知
-- **标题带会话名**：所有通知标题都标明来自哪个会话，如「重构数据库 · 需要审批」
-- **点击跳转到对应会话**：点通知不只是跳回 DSH 页面，还会自动打开通知里的那个会话
-- 只在你不看这个标签页时通知；页面在前台时 DSH 本来就有提示，不重复打扰
-- 同一件事只通知一次，断线重连不会重复响；打开一个有历史记录的会话也不会把旧轮次全刷一遍
-- 通知不会几秒后自动消失，等你处理
-- 设置 → 通用 里有开关，中英文跟随 DSH 语言
+While you browse other pages, DSH needs human confirmation (tool approvals, questions) or finishes a round of work, and the Web UI in the foreground tab is the only place it asks. If you are looking anywhere else, the request waits silently. This plugin moves those moments onto your desktop: a native system notification appears, names the session, and clicks back into the conversation.
 
-## 安装
+## Features
 
-插件是 DSH **bundle**（`package.json` 声明 `dsh.bundle` + `dsh.client`），通过标准的 `dsh plugin` 机制安装到 profile，**无需修改 DSH 源码、无需手写 patch**：
+- **Notify on interaction with the current session**: tool approvals and DSH questions carry context in the body (approvals show the over-permission reason, questions show the question text)
+- **Notify on background sessions too**: sessions you are not looking at also notify when they need approval or a question (same contextual body as the current session); a finished background session notifies as well — click it to jump straight to that session
+- **Notify on turn completion**: every finished turn of the current session notifies, with the first 80 characters of the final answer; tool-only turns without a final answer show the turn number. Completion, interruption, and error turns all notify
+- **Session name in the title**: every notification title names its session, e.g. "Refactor database · needs approval"
+- **Click to jump to the session**: clicking a notification not only returns to the DSH page but also opens that session
+- Notifies only while you are away from the tab; when the page is in the foreground DSH already shows its own prompts, so it does not double-notify
+- Each event notifies once — reconnects do not repeat it, and opening a session with history does not replay old turns
+- Notifications do not auto-dismiss after a few seconds; they wait for you
+- A toggle lives in Settings → General, following the DSH language (zh/en)
+
+## Install
+
+The plugin is a DSH **bundle** (`package.json` declares `dsh.bundle` + `dsh.client`). Install it into the `web` profile with the standard `dsh plugin` mechanism — **no DSH source changes and no hand-written patch**:
 
 ```sh
 dsh plugin --profile web add github:bill9109/dsh-web-ui-notify
 ```
 
-命令内部 = 在 profile 目录执行 `pnpm add <spec>` + 自动把声明了 `dsh.bundle` 的包追加进 `dsh.profile.bundles`。也可以先 clone 再用本地路径安装（开发调试，改完重新构建即生效）：
+Internally the command runs `pnpm add <spec>` in the profile directory and automatically appends packages that declare `dsh.bundle` to `dsh.profile.bundles`. You can also clone it and install from a local path (for development — rebuild and it takes effect):
 
 ```sh
 dsh plugin --profile web add /path/to/dsh-web-ui-notify
 ```
 
-仓库里带了构建产物（`lib/`），装完直接可用，不需要另外构建。插件零运行时依赖——浏览器侧那几个 `require`（react、react/jsx-runtime、ui-slots）走 DSH 前端自己的模块表，不经过 npm。
+The repository ships its build output (`lib/`), so the plugin works right after installing — no build step needed. It has zero runtime dependencies: the browser-side `require`s (react, react/jsx-runtime, ui-slots) resolve through DSH's own frontend module table, not npm.
 
-> 旧版 DSH（profile 体系之前）用 `pnpm --filter @deepseek-ai/dsh add` + `config.yaml` 安装；20260806 快照起改为上面的 profile 方式。若你的 DSH 还是旧版，用 README 的历史版本（git 历史里可见）。
+> Older DSH (before the profile system) installed via `pnpm --filter @deepseek-ai/dsh add` + `config.yaml`; since the 20260806 snapshot the profile flow above is the way. If your DSH is still old, use the historical README (visible in git history).
 
-安装后**重启 Web UI**（按你当前启动 DSH Web UI 的方式）并刷新浏览器页面，插件即生效。
+After installing, **restart the Web UI** (the way you normally start DSH) and refresh the browser page — the plugin takes effect.
 
-## 使用
+### Upgrade
 
-装好之后还要授权浏览器通知权限，否则插件是静默的——没授权时浏览器直接禁止弹通知。
+```sh
+dsh plugin --profile web update github:bill9109/dsh-web-ui-notify
+```
 
-1. 打开 **设置 → 通用 → 桌面通知**，点**开启桌面通知**
-2. 浏览器弹出询问，选允许，状态变成「已开启」
-3. macOS 还要在**系统设置 → 通知**里允许你的浏览器
+For a local-path installation, run `add` again against the replacement checkout. User settings (the Settings → General toggle) live in the profile's Settings provider and survive upgrades.
 
-之后切到别的标签页，遇到审批、提问、或者一轮干完了，就会收到系统通知，点它跳回来处理。
-
-设置行的四种状态：
-
-| 状态 | 含义 |
-| --- | --- |
-| 已开启 | 正常工作 |
-| 未授权 | 点按钮授权 |
-| 已被浏览器阻止 | 之前拒绝过，要去浏览器的站点设置里改回允许，点按钮没用 |
-| 浏览器不支持 | 当前环境没有通知 API |
-
-## 卸载
+### Uninstall
 
 ```sh
 dsh plugin --profile web remove @bill9109/dsh-web-ui-notify
 ```
 
-命令内部 = 在 profile 目录执行 `pnpm remove <pkg>` + 自动把它从 `dsh.profile.bundles` 移除。卸载后重启 web 并硬刷新浏览器。
+The command runs `pnpm remove <pkg>` in the profile directory and removes it from `dsh.profile.bundles`. After uninstalling, restart web and hard-refresh the browser.
+
+## Usage
+
+After installation you must also grant browser notification permission, otherwise the plugin stays silent — without permission the browser simply blocks notifications.
+
+1. Open **Settings → General → Desktop notifications** and click **Enable**
+2. When the browser asks, choose Allow; the status becomes "Enabled"
+3. On macOS, also allow your browser under **System Settings → Notifications**
+
+Then switch to another tab — approvals, questions, or finished turns produce system notifications, and clicking one brings you back to handle it.
+
+The settings row has four states:
+
+| Status | Meaning |
+| --- | --- |
+| Enabled | Working normally |
+| Not granted | Click the button to grant |
+| Blocked by browser | Previously denied — change the site setting back to Allow; the button alone will not help |
+| Unsupported | The environment has no Notification API |
+
+## Troubleshooting
+
+| Symptom | Resolution |
+| --- | --- |
+| No notifications appear | Confirm the toggle in Settings → General is Enabled, the browser permission for the DSH site is Allow, and on macOS the browser is allowed under System Settings → Notifications; then switch to another tab — the plugin only notifies while you are away |
+| Notifications worked, then stopped after a restart | The browser may have reset site permissions; re-grant, or re-enable the toggle if the settings row shows a different state |
+| "Blocked by browser" | The site permission was previously denied — change it back to Allow in the browser's site settings; clicking Enable alone will not help |
+| "Unsupported" | The environment has no Notification API (e.g. an old or unusual browser); desktop notifications cannot work there |
+| Plugin not in Settings → General after install | The plugin only appears after the Web UI is restarted and the page hard-refreshed; verify the bundle row is in the profile (`dsh --profile web --dump-config | grep web-ui-notify`) |
+
+## Development and verification
+
+```sh
+pnpm install
+pnpm run build     # tsc + tsdown -> lib/ (committed)
+pnpm test          # vitest: browser-plugin + settings-row suites
+```
+
+`pnpm run build` emits the host + client bundles into `lib/`, which is committed so consumers install without building. The test suite covers plugin wiring on a real cordis context and the settings row in jsdom. Changes that alter the plugin's visible surface (which events notify, the settings row, locales) should add or update coverage in `tests/`.
+
+## Community and About
+
+- Use [GitHub Issues](https://github.com/bill9109/dsh-web-ui-notify/issues) for reproducible bugs, focused feature requests, and usage questions.
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes; report vulnerabilities privately via [SECURITY.md](SECURITY.md).
+- Follow releases and compatibility notes in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
