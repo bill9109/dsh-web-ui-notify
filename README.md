@@ -58,7 +58,7 @@ For a local-path installation, run `add` again against the replacement checkout.
 ### Uninstall
 
 ```sh
-dsh plugin --profile web remove @omdsh-dev/dsh-web-ui-notify
+dsh plugin --profile web remove dsh-web-ui-notify
 ```
 
 The command runs `pnpm remove <pkg>` in the profile directory and removes it from `dsh.profile.bundles`. After uninstalling, restart web and hard-refresh the browser.

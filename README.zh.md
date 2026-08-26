@@ -58,7 +58,7 @@ dsh plugin --profile web update github:omdsh-dev/dsh-web-ui-notify
 ### 卸载
 
 ```sh
-dsh plugin --profile web remove @omdsh-dev/dsh-web-ui-notify
+dsh plugin --profile web remove dsh-web-ui-notify
 ```
 
 命令内部 = 在 profile 目录执行 `pnpm remove <pkg>` + 自动把它从 `dsh.profile.bundles` 移除。卸载后重启 web 并硬刷新浏览器。

@@ -7,4 +7,4 @@
 
 - insert:
     - id: ui-notify
-      name: '@omdsh-dev/dsh-web-ui-notify'
+      name: 'dsh-web-ui-notify'
