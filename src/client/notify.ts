@@ -5,7 +5,7 @@
  * Notification) so the browser-plugin spec can drive them with a stub
  * Notification and a fake visibilityState.
  */
-import type { PendingInteraction } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionPendingInteraction } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { NotifyKey } from './locales.ts'
 
 /** Locale translate function shape (the bound `t` from ctx.locale). */
@@ -74,15 +74,15 @@ function show(title: string, body: string, tag: string, target: NotifyTarget): N
  * @param target - session label + click-to-jump handler.
  * @returns the constructed Notification (tests assert on it).
  */
-export function fireNotification(wait: PendingInteraction, t: Translate, target: NotifyTarget): Notification {
+export function fireNotification(wait: SessionPendingInteraction, t: Translate, target: NotifyTarget): Notification {
   const title = titled(
     wait.kind === 'approval' ? t('notify.approval.title') : t('notify.question.title'),
     target.label,
   )
   const body = wait.kind === 'approval'
-    ? (wait.payload.reason ?? t('notify.approval.body', { toolName: wait.payload.toolName }))
+    ? (wait.reason ?? t('notify.approval.body', { toolName: wait.toolName }))
     : (() => {
-      const first = wait.payload.questions[0]
+      const first = wait.questions[0]
       return first?.question !== undefined && first.question !== ''
         ? first.question
         : t('notify.question.bodyGeneric')

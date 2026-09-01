@@ -33,6 +33,7 @@
  */
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ISessions, ConversationNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionPendingInteraction } from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the settings shell's SlotMap merge (the 'settings.general.item' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -78,8 +79,10 @@ export function turnSummaryOf(nodes: readonly ConversationNode[], turn: number):
   return trimmed.length > SUMMARY_MAX ? `${trimmed.slice(0, SUMMARY_MAX)}…` : trimmed
 }
 
-/** Required services: the settings slots registry, session domain, and locale. */
-export const inject = ['slots', 'sessions', 'locale']
+/** Required services: the settings slots registry, session domain, locale, and the
+ * UI session/conversation adapters that carry the alpha2 pending-interaction and
+ * chat snapshot sources. */
+export const inject = ['slots', 'sessions', 'locale', 'uiConversation', 'uiSession']
 
 /**
  * Client plugin body: register the `web-ui-notify` dictionaries, subscribe
@@ -117,61 +120,64 @@ export function apply(ctx: ClientContext): void {
     if (sessions.list.getSnapshot().byId[sid] !== undefined) sessions.open(sid)
   }
 
-  /** Scan the current session's snapshot; notify newly finished turns. */
+  /** Scan the current session's chat snapshot; notify newly finished turns.
+   *  alpha2 moved turnEnds/nodes off the session snapshot onto the Chat view's
+   *  legacy projection, so this reads the chat target. A chat view that is not
+   *  materialized yet yields undefined and is simply skipped.
+   */
   const scan = (): void => {
-    const current = sessions.list.getSnapshot().current
-    if (current === undefined) return
-    const session = sessions.binding(current)?.session
-    if (session === undefined) return
-    const snapshot = session.getSnapshot()
-    // Turn completion: only track once the window is OPEN (history loaded);
-    // the first open scan absorbs the turns already finished, so a session's
-    // past is never re-notified, and later scans notify only for new numbers.
-    // Replay re-presents the same numbers, so it stays silent too.
-    if (snapshot.openState !== 'open') return
-    let turns = seenTurns.get(current)
-    if (turns === undefined) {
-      turns = new Set(snapshot.turnEnds.keys())
-      seenTurns.set(current, turns)
-      return
-    }
-    for (const turn of snapshot.turnEnds.keys()) {
-      if (turns.has(turn)) continue
-      turns.add(turn)
-      if (hiddenNow() && notificationUsable()) {
-        fireTurnNotification(turn, turnSummaryOf(snapshot.nodes, turn), t, {
-          label: labelOf(current), onOpen: openOf(current),
-        })
+    try {
+      const current = sessions.list.getSnapshot().current
+      if (current === undefined) return
+      const snapshot = ctx.uiConversation.binding(current).target('chat').getSnapshot()
+      if (snapshot === undefined || snapshot.legacy === undefined) return
+      let turns = seenTurns.get(current)
+      if (turns === undefined) {
+        turns = new Set(snapshot.legacy.turnEnds.keys())
+        seenTurns.set(current, turns)
+        return
       }
+      for (const turn of snapshot.legacy.turnEnds.keys()) {
+        if (turns.has(turn)) continue
+        turns.add(turn)
+        if (hiddenNow() && notificationUsable()) {
+          fireTurnNotification(turn, turnSummaryOf(snapshot.legacy.nodes, turn), t, {
+            label: labelOf(current), onOpen: openOf(current),
+          })
+        }
+      }
+    } catch {
+      // A notification scan must never surface as a subscriber error; the chat
+      // source may be absent (non-chat view) or mid-restructure, so degrade.
     }
   }
 
   /**
-   * Scan the session list: notify pending waits (current AND background, from
-   * the session's snapshot payload, deduped by stable wait key) and whole-
+   * Scan the UI pending-interaction source (approvals / questions, current AND
+   * background, deduped by stable wait key) and the session list for whole-
    * session completion (background only, once per finish).
    */
   const scanList = (): void => {
+    // alpha2: pending waits live on the uiSession.pendingInteractions source,
+    // not on SessionSummary.pendingInteraction / SessionSnapshot.pending.
+    try {
+      const pending = ctx.uiSession.pendingInteractions.getSnapshot()
+      for (const [sid, wait] of pending) {
+        const key = `${sid}:${wait.key}`
+        if (notified.has(key)) continue
+        notified.add(key)
+        if (hiddenNow() && notificationUsable()) {
+          fireNotification(wait, t, { label: labelOf(sid), onOpen: openOf(sid) })
+        }
+      }
+    } catch {
+      // Pending-interaction source unavailable; skip waits, keep completions.
+    }
     const list = sessions.list.getSnapshot()
     const current = list.current
     for (const sid of list.ids) {
       const summary = list.byId[sid]
       if (summary === undefined) continue
-      // The status is just the "this session has a wait" trigger; the wait
-      // itself (and its payload) comes from the session snapshot.
-      if (summary.pendingInteraction !== undefined) {
-        const session = sessions.binding(sid)?.session
-        if (session !== undefined) {
-          for (const wait of session.getSnapshot().pending) {
-            const key = `${sid}:${wait.key}`
-            if (notified.has(key)) continue
-            notified.add(key)
-            if (hiddenNow() && notificationUsable()) {
-              fireNotification(wait, t, { label: labelOf(sid), onOpen: openOf(sid) })
-            }
-          }
-        }
-      }
       // Whole-session completion ("done" reminder): notify once per session,
       // cleared when the flag drops (running again / opened / removed).
       if (sid !== current && summary.completed === true) {
@@ -193,7 +199,7 @@ export function apply(ctx: ClientContext): void {
     }
   }
 
-  /** Re-subscribe to the current session's snapshot when `current` moves. */
+  /** Re-subscribe to the current session's chat snapshot when `current` moves. */
   const watchCurrent = (): void => {
     const current = sessions.list.getSnapshot().current
     if (current === watched) return
@@ -201,9 +207,12 @@ export function apply(ctx: ClientContext): void {
     unsubSession = undefined
     watched = current
     if (current === undefined) return
-    const session = sessions.binding(current)?.session
-    if (session === undefined) return
-    unsubSession = session.subscribe(scan)
+    try {
+      const chat = ctx.uiConversation.binding(current).target('chat')
+      unsubSession = chat.subscribe(scan)
+    } catch {
+      unsubSession = undefined
+    }
     scan()
   }
 
