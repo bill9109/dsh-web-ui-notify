@@ -9,30 +9,38 @@
  *
  * Observation model — two layers:
  *
- * 1. The LIST layer (all sessions) is the sidebar-dot signal: it reports, for
- *    every listed session, a pending-interaction status ('approval' /
- *    'plan-review' / 'question') and a whole-session completion flag. The
- *    status is only a TRIGGER: it says "this session has a wait", and the
- *    plugin then resolves the session binding (minting the scope lazily, same
- *    as opening would) to read the wait's full payload. This is what lets a
- *    BACKGROUND session (one you are not looking at) raise a notification —
- *    with its own title, the rich body (approval reason / question text), and
- *    a click that opens it.
+ * 1. The STATUS layer (`ctx.uiSession.sessionStatus`, every session) is the
+ *    sidebar-dot signal: dsh publishes one `SessionStatus` per session with
+ *    `running`, `pendingInteraction` ('approval' / 'plan-review' /
+ *    'question'), and `completionUnread` — a stop observed outside the main
+ *    view that still needs acknowledgement. The status IS the trigger and the
+ *    payload, so a BACKGROUND session (one you are not looking at) raises a
+ *    notification with its own title, the rich body (approval reason /
+ *    question text), and a click that opens it.
  *
  * 2. The SNAPSHOT layer (the CURRENT session only) handles per-turn
  *    completion with the final-text excerpt. The `turnEnds` baseline absorbs a
  *    session's past on first open so history is never re-notified, and replay
  *    re-presents the same numbers so it stays silent.
  *
- * Dedupe is one set of PendingWait keys (`${sid}:${wait.key}`), shared by
- * current and background sessions. Wait keys are stable across mux-open
- * replay, so reconnect (which clears and re-adds the same still-pending
- * waits) never re-fires — the same "同一件事只通知一次，断线重连不会重复响"
- * guarantee the wait-key dedupe gave the current session now covers
- * background sessions too.
+ * Dedupe is a set of pending-interaction keys (`${sid}:${wait.key}`), stable
+ * across replay, so reconnect (which clears and re-adds the same still-pending
+ * waits) never re-fires — plus a set of completion-notified session ids,
+ * cleared when the flag drops.
+ *
+ * Contract note (dsh 0.1.7): the 0.1.5-era sources this plugin was written
+ * against — `uiSession.pendingInteractions` and `SessionSummary.completed` —
+ * no longer exist. Both facts now ride the unified `sessionStatus` map. Every
+ * source read is wrapped so the next contract change degrades to one named
+ * warning instead of silently disabling notifications.
+ *
+ * Two more 0.1.7 moves this file had to follow: `SessionListState.current` is
+ * gone (the main-view session is now the row retained by `mainView`), and
+ * `sessions.open(id)` is gone (navigation belongs to
+ * `uiWorkspace.openSession`).
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client';
-import type { ConversationNode } from '@deepseek-ai/dsh-client-runtime/client';
+import type { Context as ClientContext } from '@deepseek-ai/cordis';
+import type { ConversationNode } from '@deepseek-ai/dsh-client-ui-conversation/client';
 import { type NotifyKey } from './locales.ts';
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {
@@ -50,12 +58,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  * @returns the excerpt, or undefined when the turn produced no final text.
  */
 export declare function turnSummaryOf(nodes: readonly ConversationNode[], turn: number): string | undefined;
-/** Required services: the settings slots registry, session domain, and locale. */
+/** Required services: the settings slots registry, session domain, locale, and the
+ * UI session/conversation faces that carry the unified session status and the
+ * chat snapshot sources. */
 export declare const inject: string[];
 /**
- * Client plugin body: register the `web-ui-notify` dictionaries, subscribe
- * to the session list (background waits + completions) and the current
- * session's snapshot (turn completions), and register the settings row.
+ * Client plugin body: register the `web-ui-notify` dictionaries, subscribe to
+ * the unified session-status source (background waits + completions) and the
+ * current session's chat snapshot (turn completions), and register the
+ * settings row.
  * @param ctx - client root context.
  */
 export declare function apply(ctx: ClientContext): void;

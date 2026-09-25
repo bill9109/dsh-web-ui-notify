@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-ui-notify",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "Desktop notifications for DeepSeek Harness approvals, questions, and turn completion — so neither DSH nor you end up waiting while you browse another tab.",
   "keywords": [
     "deepseek",
@@ -48,7 +48,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "vitest run",
+    "test": "node scripts/test.mjs",
     "verify:i18n": "node scripts/verify-i18n.mjs"
   },
   "dsh": {
@@ -57,9 +57,16 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-session"
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-approval",
+        "@deepseek-ai/dsh-client-ui-user-questions",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ],
       "platform": "web"
     }

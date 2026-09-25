@@ -65,52 +65,120 @@ function show(title: string, body: string, tag: string, target: NotifyTarget): N
   return withClickFocus(new Notification(title, { body, tag, requireInteraction: true }), target.onOpen)
 }
 
+/** Notification-body cap for a plan under review: keep the system notification compact. */
+const PLAN_MAX = 160
+
+/** Compact one-line excerpt of a possibly-long body; undefined when absent or blank. */
+function excerptOf(text: string | undefined, max: number): string | undefined {
+  if (text === undefined) return undefined
+  const trimmed = text.replace(/\s+/gu, ' ').trim()
+  if (trimmed === '') return undefined
+  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed
+}
+
 /**
  * Build and show the desktop notification for one pending wait. The caller
  * gates on {@link hiddenNow} / {@link notificationUsable} and dedupes by
  * wait key; this function only renders.
- * @param wait - the pending approval or question interaction.
+ *
+ * Three wait kinds reach this renderer: `approval`, `question`, and the
+ * `plan-review` intent of a question. A plan review is its own thing — its
+ * plan markdown rides the question's `detail` — so it gets its own title and
+ * body instead of being reported as an ordinary question.
+ * @param wait - the pending approval, question, or plan-review interaction.
  * @param t - bound locale translate for the plugin namespace.
- * @param target - session label + click-to-jump handler.
+ * @param target - session label + click-to-jump handler + the session-scoped tag
+ *   (`${sid}:${wait.key}`), so two sessions' waits can never replace each other.
  * @returns the constructed Notification (tests assert on it).
  */
-export function fireNotification(wait: SessionPendingInteraction, t: Translate, target: NotifyTarget): Notification {
+export function fireNotification(
+  wait: SessionPendingInteraction,
+  t: Translate,
+  target: NotifyTarget & { tag: string },
+): Notification {
   const title = titled(
-    wait.kind === 'approval' ? t('notify.approval.title') : t('notify.question.title'),
+    wait.kind === 'approval'
+      ? t('notify.approval.title')
+      : wait.kind === 'plan-review'
+        ? t('notify.plan.title')
+        : t('notify.question.title'),
     target.label,
   )
-  const body = wait.kind === 'approval'
-    ? (wait.reason ?? t('notify.approval.body', { toolName: wait.toolName }))
-    : (() => {
-      const first = wait.questions[0]
-      return first?.question !== undefined && first.question !== ''
-        ? first.question
-        : t('notify.question.bodyGeneric')
-    })()
-  return show(title, body, wait.key, target)
+  let body: string
+  if (wait.kind === 'approval') {
+    body = wait.reason ?? t('notify.approval.body', { toolName: wait.toolName })
+  } else if (wait.kind === 'plan-review') {
+    const first = wait.questions[0]
+    body = excerptOf(first?.detail, PLAN_MAX)
+      ?? excerptOf(first?.question, PLAN_MAX)
+      ?? t('notify.plan.body')
+  } else {
+    body = excerptOf(wait.questions[0]?.question, PLAN_MAX) ?? t('notify.question.bodyGeneric')
+  }
+  return show(title, body, target.tag, target)
 }
 
 /**
- * Build and show the desktop notification for a completed turn. The caller
- * gates on {@link hiddenNow} / {@link notificationUsable} and dedupes by
+ * How one turn ended. Mirrors the harness `TurnEndReason` kinds this plugin
+ * reports; `forked` is absent because it is a synthetic closer the fork
+ * machinery writes, never something that happened in this client.
+ */
+export type TurnOutcome = 'completed' | 'max-tokens' | 'error' | 'aborted' | 'blocked' | 'interrupted'
+
+/**
+ * Turn-end facts a notification reports: the outcome, plus whatever detail the
+ * harness carried (an LLM failure message, or a hook's stop reason).
+ */
+export interface TurnEndFacts {
+  /** Why the turn ended. */
+  readonly outcome: TurnOutcome
+  /** Harness-supplied detail; when absent the copy's own turn sentence is used. */
+  readonly detail?: string | undefined
+}
+
+/** Title/body copy per non-completed outcome (completed keeps the excerpt copy). */
+const TURN_OUTCOME_COPY: Record<Exclude<TurnOutcome, 'completed'>, { title: NotifyKey; body: NotifyKey }> = {
+  'max-tokens': { title: 'notify.turn.maxTokens.title', body: 'notify.turn.maxTokens.body' },
+  error: { title: 'notify.turn.error.title', body: 'notify.turn.error.body' },
+  aborted: { title: 'notify.turn.aborted.title', body: 'notify.turn.aborted.body' },
+  blocked: { title: 'notify.turn.blocked.title', body: 'notify.turn.blocked.body' },
+  interrupted: { title: 'notify.turn.interrupted.title', body: 'notify.turn.interrupted.body' },
+}
+
+/**
+ * Build and show the desktop notification for a finished turn. A turn that
+ * produced no final assistant text is normal — a concluding tool
+ * (`concludesTurn`), a structured-output subagent, a PTC script that ends the
+ * loop — so only the outcome decides the copy, never the absence of text. The
+ * caller gates on {@link hiddenNow} / {@link notificationUsable} and dedupes by
  * turn; this function only renders.
- * @param turn - the completed turn number.
+ * @param turn - the finished turn number.
  * @param summary - optional excerpt of the turn's final assistant text; when
- *   absent (a tool-only turn) the notification falls back to the turn number.
+ *   absent (a tool-only turn) a completed turn falls back to the turn copy.
+ * @param facts - why the turn ended (see {@link TurnEndFacts}).
  * @param t - bound locale translate for the plugin namespace.
- * @param target - session label + click-to-jump handler.
+ * @param target - session label + click-to-jump handler + the session-scoped tag
+ *   (`${sid}:turn:${turn}`), so two sessions' turn numbers cannot collide.
  * @returns the constructed Notification (tests assert on it).
  */
 export function fireTurnNotification(
   turn: number,
   summary: string | undefined,
+  facts: TurnEndFacts,
   t: Translate,
-  target: NotifyTarget,
+  target: NotifyTarget & { tag: string },
 ): Notification {
+  if (facts.outcome !== 'completed') {
+    const copy = TURN_OUTCOME_COPY[facts.outcome]
+    const body = facts.detail !== undefined && facts.detail !== ''
+      ? facts.detail
+      : t(copy.body, { turn: String(turn) })
+    return show(titled(t(copy.title), target.label), body, target.tag, target)
+  }
   const body = summary !== undefined && summary !== ''
     ? summary
     : t('notify.turn.body', { turn: String(turn) })
-  return show(titled(t('notify.turn.title'), target.label), body, `turn:${turn}`, target)
+  return show(titled(t('notify.turn.title'), target.label), body, target.tag, target)
 }
 
 /**

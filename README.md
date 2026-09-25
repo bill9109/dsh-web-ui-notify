@@ -1,6 +1,6 @@
 # dsh-web-ui-notify — Desktop notifications for approvals / questions / turn completion
 
-[![Release v0.1.4](https://img.shields.io/badge/release-v0.1.4-5B4CF0?style=flat-square)](https://github.com/omdsh-dev/dsh-web-ui-notify/releases/tag/v0.1.4)
+[![Release v0.1.6](https://img.shields.io/badge/release-v0.1.6-5B4CF0?style=flat-square)](https://github.com/omdsh-dev/dsh-web-ui-notify/releases/tag/v0.1.6)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-0B7285?style=flat-square)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%5E20%20%7C%20%3E%3D22-339933?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
 [![DSH profiles](https://img.shields.io/badge/DSH-Web-5B4CF0?style=flat-square)](cordis.patch.yml)
