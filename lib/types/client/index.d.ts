@@ -42,6 +42,7 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis';
 import type { ConversationNode } from '@deepseek-ai/dsh-client-ui-conversation/client';
 import { type NotifyKey } from './locales.ts';
+import { type PageCoordination } from './pages.ts';
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {
         /** The web-ui-notify surfaces' copy (settings row + notification titles). */
@@ -68,5 +69,8 @@ export declare const inject: string[];
  * current session's chat snapshot (turn completions), and register the
  * settings row.
  * @param ctx - client root context.
+ * @param options - test seam: an injected cross-page coordinator.
  */
-export declare function apply(ctx: ClientContext): void;
+export declare function apply(ctx: ClientContext, options?: {
+    readonly pages?: PageCoordination | undefined;
+}): void;

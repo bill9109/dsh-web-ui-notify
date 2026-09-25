@@ -62,9 +62,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-user-questions/client'
 import { NotificationSettingsRow } from './NotificationSettingsRow.tsx'
 import { en, NS, zh, type NotifyKey } from './locales.ts'
 import {
-  fireNotification, fireSessionDoneNotification, fireTurnNotification, hiddenNow, notificationUsable,
+  fireNotification, fireSessionDoneNotification, fireTurnNotification, notificationUsable,
   type TurnEndFacts,
 } from './notify.ts'
+import { createPageCoordination, type PageCoordination } from './pages.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -170,11 +171,31 @@ export const inject = ['slots', 'sessions', 'locale', 'uiConversation', 'uiSessi
  * current session's chat snapshot (turn completions), and register the
  * settings row.
  * @param ctx - client root context.
+ * @param options - test seam: an injected cross-page coordinator.
  */
-export function apply(ctx: ClientContext): void {
+export function apply(
+  ctx: ClientContext,
+  options?: { readonly pages?: PageCoordination | undefined },
+): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-notify: dictionaries')
   const t = ctx.locale.bind(NS)
   const sessions: ISessions = ctx.sessions
+  /**
+   * Cross-page coordination. Every tab runs its own copy of this plugin, so the
+   * election and the "already shown" memory live behind this seam: one event,
+   * one notification, whichever tab happens to be in front.
+   */
+  const pages = options?.pages ?? createPageCoordination()
+  /**
+   * Announce this page's view: tab visibility, the session its main view shows,
+   * and whether notifications are permitted here. A page announcing a visible
+   * main-view session suppresses that session's notifications everywhere.
+   */
+  const syncView = (): void => pages.announce({
+    visible: typeof document !== 'undefined' && document.visibilityState === 'visible',
+    sessionId: mainSessionId(sessions.list.getSnapshot()),
+    granted: notificationUsable(),
+  })
 
   /**
    * One-shot degradation report. A scan must never surface as a subscriber
@@ -256,11 +277,11 @@ export function apply(ctx: ClientContext): void {
         // Only a page bound to this session can see its turns, so the election
         // runs among those pages alone.
         const tag = `${current}:turn:${turn}`
-        if (hiddenNow() && notificationUsable()) {
+        pages.elect(tag, current, 'showing-session', () => {
           fireTurnNotification(turn, turnSummaryOf(snapshot.legacy.nodes, turn), facts, t, {
             label: labelOf(current), onOpen: openOf(current), tag,
           })
-        }
+        })
       }
     } catch (error) {
       // A notification scan must never surface as a subscriber error; the chat
@@ -294,9 +315,9 @@ export function apply(ctx: ClientContext): void {
           const key = `${sid}:${wait.key}`
           if (!notified.has(key)) {
             notified.add(key)
-            if (hiddenNow() && notificationUsable()) {
+            pages.elect(key, sid, 'any-page', () => {
               fireNotification(wait, t, { label: labelOf(sid), onOpen: openOf(sid), tag: key })
-            }
+            })
           }
         }
         // A completion of the session shown in the main view is the turn-level
@@ -304,14 +325,16 @@ export function apply(ctx: ClientContext): void {
         if (status.completionUnread === true && sid !== current) {
           if (!completionNotified.has(sid)) {
             completionNotified.add(sid)
-            if (hiddenNow() && notificationUsable()) {
+            pages.elect(`${sid}:done`, sid, 'any-page', () => {
               fireSessionDoneNotification(t, {
                 label: labelOf(sid), onOpen: openOf(sid), tag: `${sid}:done`,
               })
-            }
+            })
           }
         } else if (status.completionUnread !== true) {
           completionNotified.delete(sid)
+          // The reminder is recurring: acknowledge/clear must re-arm it.
+          pages.forget(`${sid}:done`)
         }
       }
       // Drop completion state for sessions that left the status map.
@@ -342,14 +365,25 @@ export function apply(ctx: ClientContext): void {
     scan()
   }
 
-  const unsubList = sessions.list.subscribe(() => { watchCurrent() })
+  // Moving the main view changes what this page is "watching" — and therefore
+  // what its siblings may announce — so every list move is re-announced.
+  const unsubList = sessions.list.subscribe(() => { watchCurrent(); syncView() })
   const unsubStatus = ctx.uiSession.sessionStatus.subscribe(scanStatus)
+  const onVisibilityChange = (): void => syncView()
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', onVisibilityChange)
+  }
+  syncView()
   watchCurrent()
   scanStatus()
   ctx.effect(() => () => {
     unsubList()
     unsubStatus()
     unsubSession?.()
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+    pages.close()
   }, 'ui-notify: session subscription')
 
   // Register the settings row once the `settings.general.item` slot is on the

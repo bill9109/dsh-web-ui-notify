@@ -16,6 +16,12 @@ release reads does not exist on the 0.1.5-era client contract.
   - The current session's own completion stays with the Chat target's `legacy.turnEnds` layer (unchanged): `completionUnread` is deliberately about the sessions you are NOT looking at.
 - A finished turn is no longer announced as "finished" whatever happened: the notification now reads the turn's `turn/end` reason from the Chat timeline and says what actually happened — `max-tokens` → "turn cut off", `error` → "turn failed" (with the harness failure message), `aborted` → "turn stopped" (with a hook's own stop reason when it supplied one), `blocked` / `interrupted` likewise. A turn with no final assistant text is normal (a concluding tool, a structured-output subagent, a PTC script), so the absence of text never drives copy; the synthetic `forked` closer is not announced at all.
 
+### Changed
+
+- Desktop notifications are coordinated across the tabs of one browser: an event is announced **once**, not once per open tab. A tab that is visible *and* shows the event's session suppresses the announcement everywhere (the user is already looking at it); otherwise the election prefers a visible tab, then the lowest page id, and the other candidates take over when the elected tab never reports back (a frozen or discarded background tab).
+- Notification tags are session-scoped — `${sid}:${wait.key}`, `${sid}:turn:${turn}`, `${sid}:done` — so two sessions' notifications can no longer replace each other.
+- "Already shown" keys are remembered across pages and across a reload, so a still-pending approval or question is not re-announced when the page reloads or another tab opens. A session's completion reminder re-arms when its flag drops (it is recurring, unlike a wait key or a turn number).
+
 ## [0.1.5] - 2026-09-14
 
 ### Fixed

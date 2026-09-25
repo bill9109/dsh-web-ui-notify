@@ -22,8 +22,42 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { NotificationSettingsRow } from '../src/client/NotificationSettingsRow.tsx'
 import { apply, inject } from '../src/client/index.ts'
+import { createPageCoordination, type PageCoordination } from '../src/client/pages.ts'
 
 const SID = 's1' as SessionId
+
+/** In-process stand-in for BroadcastChannel: every coordinator on one bus hears the rest. */
+function createBus() {
+  const handlers: Array<(data: unknown) => void> = []
+  return {
+    postMessage(message: unknown): void { for (const handler of [...handlers]) handler(message) },
+    onMessage(handler: (data: unknown) => void): void { handlers.push(handler) },
+    close(): void { handlers.length = 0 },
+  }
+}
+
+/** Per-page `localStorage` stand-in (shared object = shared origin). */
+function createMemory(store: Record<string, string> = {}) {
+  return {
+    store,
+    read: (key: string): string | null => store[key] ?? null,
+    write: (key: string, value: string): void => { store[key] = value },
+  }
+}
+
+/** Coordinators created by `bench`; every test tears them down. */
+const openCoordinators: PageCoordination[] = []
+/** The coordinator of the most recent `bench`, used by the shared plugin row. */
+let lastBenchPages: PageCoordination | undefined
+let pageSeq = 0
+
+/** The plugin row every test mounts; carries the bench's cross-page coordinator. */
+function pluginRow(pages: PageCoordination | undefined = lastBenchPages) {
+  return {
+    inject: [...inject],
+    apply: (ctx: Parameters<typeof apply>[0]) => apply(ctx, { pages }),
+  }
+}
 
 /** Stub notification: construct from options, record the instance, let the test fire onclick. */
 class StubNotification {
@@ -201,7 +235,22 @@ function brokenUiSession() {
 }
 
 /** Assemble a bench: real cordis ctx with slots/locale provided and the UI faces scripted. */
-async function bench(options: { uiSession?: unknown } = {}) {
+async function bench(
+  options: {
+    uiSession?: unknown
+    /** Share one bus across benches to script several pages of the same origin. */
+    bus?: ReturnType<typeof createBus>
+    memory?: ReturnType<typeof createMemory>
+    pageId?: string
+  } = {},
+) {
+  const pages = createPageCoordination({
+    pageId: options.pageId ?? `page-${++pageSeq}`,
+    bus: options.bus ?? createBus(),
+    memory: options.memory ?? createMemory(),
+  })
+  openCoordinators.push(pages)
+  lastBenchPages = pages
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   const slots = ctx.get('slots') as SlotRegistry
@@ -242,6 +291,7 @@ async function bench(options: { uiSession?: unknown } = {}) {
   return {
     ctx,
     slots,
+    pages,
     sessions,
     workspace: { openSession },
     uiSession: uiSession as ReturnType<typeof scriptedUiSession>,
@@ -267,6 +317,8 @@ function planWait(key: string, question: string, plan: string) {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  for (const pages of openCoordinators.splice(0)) pages.close()
+  lastBenchPages = undefined
   StubNotification.created.length = 0
   StubNotification.permission = 'granted'
   pageHidden(false)
@@ -280,7 +332,7 @@ describe('apply', () => {
 
   it('registers the settings row through deferral once the hole is declared', async () => {
     const { ctx, slots } = await bench()
-    const fiber = ctx.plugin({ inject: [...inject], apply })
+    const fiber = ctx.plugin(pluginRow())
     await fiber.await()
     const entries = slots.entries('settings.general.item')
     expect(entries.some(e => e.component === NotificationSettingsRow)).toBe(true)
@@ -290,7 +342,7 @@ describe('apply', () => {
 
   it('notifies an approval wait on the current session while hidden, titled with the session', async () => {
     const { ctx, notify, uiSession } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     uiSession.setWait(SID, approvalWait('a:rpc-1', '需要越权执行'))
     expect(notify.created).toHaveLength(1)
@@ -302,7 +354,7 @@ describe('apply', () => {
 
   it('notifies a question wait with the first question text', async () => {
     const { ctx, notify, uiSession } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     uiSession.setWait(SID, questionWait('q:rpc-2', '选择哪个方案？'))
     expect(notify.created).toHaveLength(1)
@@ -314,7 +366,7 @@ describe('apply', () => {
 
   it('gives a plan-review wait its own title and shows the plan excerpt', async () => {
     const { ctx, notify, uiSession } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     uiSession.setWait(SID, planWait('p:rpc-3', '是否批准该计划？', '## 计划\n1. 先改配置\n2. 再跑测试'))
     expect(notify.created).toHaveLength(1)
@@ -327,7 +379,7 @@ describe('apply', () => {
 
   it('dedupes replay: the same wait key notifies only once', async () => {
     const { ctx, notify, uiSession } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     uiSession.setWait(SID, approvalWait('a:rpc-4'))
     // Same wait re-presented (reconnect / mux replay) — silent.
@@ -338,7 +390,7 @@ describe('apply', () => {
   it('does not notify while the page is visible', async () => {
     const { ctx, notify, uiSession } = await bench()
     pageHidden(false)
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     uiSession.setWait(SID, approvalWait('a:rpc-5'))
     expect(notify.created).toHaveLength(0)
@@ -347,7 +399,7 @@ describe('apply', () => {
   it('does not notify without granted permission', async () => {
     const { ctx, notify, uiSession } = await bench()
     notify.permission = 'denied'
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     uiSession.setWait(SID, approvalWait('a:rpc-6'))
     expect(notify.created).toHaveLength(0)
@@ -356,7 +408,7 @@ describe('apply', () => {
   it('clicking the notification focuses the page, jumps to the session, and closes it', async () => {
     const { ctx, notify, workspace, uiSession } = await bench()
     const focus = vi.spyOn(window, 'focus')
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     uiSession.setWait(SID, approvalWait('a:rpc-7', '越权执行'))
     const created = StubNotification.created[0]!
@@ -368,7 +420,7 @@ describe('apply', () => {
 
   it('rebinds when the current session moves', async () => {
     const { ctx, notify, sessions, uiSession, chatOf } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     const other = 's2' as SessionId
     sessions.setSummary('s2', { displayTitle: '会话二' })
@@ -388,7 +440,7 @@ describe('apply', () => {
 
   it('baselines an opened session history, then notifies only new turns', async () => {
     const { ctx, notify, chatOf } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     // The window opens with turns 1-2 already finished: absorbed as baseline.
     chatOf('s1').openWithHistory(new Map([[1, 10], [2, 20]]))
@@ -405,7 +457,7 @@ describe('apply', () => {
 
   it('falls back to the turn-number copy for a tool-only turn with no final text', async () => {
     const { ctx, notify, chatOf } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     chatOf('s1').openWithHistory(new Map())
     chatOf('s1').setNodes([{ kind: 'assistant', turn: 1, blocks: [{ kind: 'tool-call', callId: 'c1', name: 'bash', argsRaw: '{}' }] }])
@@ -418,7 +470,7 @@ describe('apply', () => {
 
   it('stays silent on replay of the same finished turns', async () => {
     const { ctx, notify, chatOf } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     chatOf('s1').openWithHistory(new Map([[1, 10], [2, 20]]))
     expect(notify.created).toHaveLength(0)
@@ -433,7 +485,7 @@ describe('apply', () => {
 
   it('names a cut-off turn instead of claiming it finished', async () => {
     const { ctx, notify, chatOf } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     chatOf('s1').openWithHistory(new Map())
     chatOf('s1').setTurnEnds(new Map([[1, 10]]), new Map([[1, { kind: 'max-tokens' }]]))
@@ -445,7 +497,7 @@ describe('apply', () => {
 
   it('reports a failed turn with the harness failure message', async () => {
     const { ctx, notify, chatOf } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     chatOf('s1').openWithHistory(new Map())
     chatOf('s1').setTurnEnds(
@@ -460,7 +512,7 @@ describe('apply', () => {
 
   it('reports a stopped turn instead of claiming it finished', async () => {
     const { ctx, notify, chatOf } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     chatOf('s1').openWithHistory(new Map())
     chatOf('s1').setTurnEnds(new Map([[1, 10]]), new Map([[1, { kind: 'aborted', reason: { kind: 'user' } }]]))
@@ -472,7 +524,7 @@ describe('apply', () => {
 
   it('prefers a hook stop reason over the generic stopped copy', async () => {
     const { ctx, notify, chatOf } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     chatOf('s1').openWithHistory(new Map())
     chatOf('s1').setTurnEnds(
@@ -487,7 +539,7 @@ describe('apply', () => {
 
   it('stays silent for a synthetic fork turn end', async () => {
     const { ctx, notify, chatOf } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     chatOf('s1').openWithHistory(new Map())
     chatOf('s1').setTurnEnds(new Map([[1, 10]]), new Map([[1, { kind: 'forked' }]]))
@@ -497,7 +549,7 @@ describe('apply', () => {
   it('does not notify a new turn while the page is visible', async () => {
     const { ctx, notify, chatOf } = await bench()
     pageHidden(false)
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     chatOf('s1').openWithHistory(new Map([[1, 10]]))
     chatOf('s1').setTurnEnds(new Map([[1, 10], [2, 20]]))
@@ -506,7 +558,7 @@ describe('apply', () => {
 
   it('notifies a background session approval with a rich body and jumps there on click', async () => {
     const { ctx, notify, sessions, workspace, uiSession } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     sessions.setSummary('s2', { displayTitle: '后台会话' })
     uiSession.setWait('s2' as SessionId, {
@@ -524,7 +576,7 @@ describe('apply', () => {
 
   it('notifies a background session completion once per finish', async () => {
     const { ctx, notify, sessions, uiSession } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     sessions.setSummary('s2', { displayTitle: '后台会话' })
     uiSession.setCompletionUnread('s2' as SessionId, true)
@@ -544,7 +596,7 @@ describe('apply', () => {
 
   it('leaves the current session completion to the turn layer', async () => {
     const { ctx, notify, uiSession } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     // s1 is the session shown in the main view: its completion is the turn case,
     // never the "you were elsewhere" reminder.
@@ -554,7 +606,7 @@ describe('apply', () => {
 
   it('does not re-notify the same wait when its session becomes current', async () => {
     const { ctx, notify, sessions, uiSession } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     sessions.setSummary('s2', { displayTitle: '后台会话' })
     uiSession.setWait('s2' as SessionId, approvalWait('a:rpc-11', '越权执行'))
@@ -572,7 +624,7 @@ describe('apply', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const broken = brokenUiSession()
     const { ctx } = await bench({ uiSession: broken })
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     // Applying already scanned the (broken) pending source once; a later
     // notification must not warn again.
     broken.fire()
@@ -582,9 +634,66 @@ describe('apply', () => {
     expect(String(ours[0]?.[0])).toContain('uiSession.sessionStatus')
   })
 
+  it('shows one notification when two background tabs watch the same session', async () => {
+    const bus = createBus()
+    const memory = createMemory()
+    const a = await bench({ bus, memory, pageId: 'a' })
+    const b = await bench({ bus, memory, pageId: 'b' })
+    await a.ctx.plugin(pluginRow(a.pages)).await()
+    await b.ctx.plugin(pluginRow(b.pages)).await()
+    // Both tabs are in the background showing s1: nobody is watching it.
+    a.pages.announce({ visible: false, sessionId: SID, granted: true })
+    b.pages.announce({ visible: false, sessionId: SID, granted: true })
+    StubNotification.created.length = 0
+    const wait = approvalWait('a:rpc-20', '需要越权执行')
+    a.uiSession.setWait(SID, wait)
+    b.uiSession.setWait(SID, wait)
+    expect(StubNotification.created).toHaveLength(1)
+  })
+
+  it('stays silent while a visible tab shows that session', async () => {
+    const bus = createBus()
+    const memory = createMemory()
+    const a = await bench({ bus, memory, pageId: 'a' })
+    const b = await bench({ bus, memory, pageId: 'b' })
+    await a.ctx.plugin(pluginRow(a.pages)).await()
+    await b.ctx.plugin(pluginRow(b.pages)).await()
+    // The user is looking at s1 in tab a: no tab announces it.
+    a.pages.announce({ visible: true, sessionId: SID, granted: true })
+    b.pages.announce({ visible: false, sessionId: SID, granted: true })
+    StubNotification.created.length = 0
+    const wait = approvalWait('a:rpc-21', '需要越权执行')
+    a.uiSession.setWait(SID, wait)
+    b.uiSession.setWait(SID, wait)
+    expect(StubNotification.created).toHaveLength(0)
+  })
+
+  it('still notifies from a visible tab that shows another session', async () => {
+    const bus = createBus()
+    const memory = createMemory()
+    const a = await bench({ bus, memory, pageId: 'a' })
+    const b = await bench({ bus, memory, pageId: 'b' })
+    await a.ctx.plugin(pluginRow(a.pages)).await()
+    await b.ctx.plugin(pluginRow(b.pages)).await()
+    a.sessions.setSummary('x', { displayTitle: '另一个会话' })
+    // Tab a is visible but reads session x, so nobody is watching s1.
+    a.pages.announce({ visible: true, sessionId: 'x' as SessionId, granted: true })
+    b.pages.announce({ visible: false, sessionId: SID, granted: true })
+    StubNotification.created.length = 0
+    const wait = approvalWait('a:rpc-22', '需要越权执行')
+    a.uiSession.setWait(SID, wait)
+    b.uiSession.setWait(SID, wait)
+    expect(StubNotification.created).toHaveLength(1)
+    // The visible page wins the election: its notification jumps that tab to s1.
+    const created = StubNotification.created[0]!
+    created.onclick?.call(created as never, new Event('click'))
+    expect(a.workspace.openSession).toHaveBeenCalledWith(SID)
+    expect(b.workspace.openSession).not.toHaveBeenCalled()
+  })
+
   it('never lets two sessions replace each other', async () => {
     const { ctx, notify, uiSession } = await bench()
-    await ctx.plugin({ inject: [...inject], apply }).await()
+    await ctx.plugin(pluginRow()).await()
     notify.created.length = 0
     uiSession.setWait(SID, approvalWait('a:rpc-23', 's1 的审批'))
     uiSession.setWait('s2' as SessionId, {
@@ -592,5 +701,22 @@ describe('apply', () => {
     })
     expect(notify.created).toHaveLength(2)
     expect(notify.created.map(entry => entry.options.tag)).toEqual(['s1:a:rpc-23', 's2:q:rpc-24'])
+  })
+
+  it('does not re-announce a still-pending wait after a reload', async () => {
+    const bus = createBus()
+    const memory = createMemory()
+    const first = await bench({ bus, memory, pageId: 'a' })
+    await first.ctx.plugin(pluginRow()).await()
+    const wait = approvalWait('a:rpc-25', '需要越权执行')
+    first.uiSession.setWait(SID, wait)
+    expect(StubNotification.created).toHaveLength(1)
+    // A fresh page of the same origin (new bus, same durable memory) re-reads the
+    // same still-pending wait: the key is already remembered, so it stays silent.
+    StubNotification.created.length = 0
+    const reloaded = await bench({ bus: createBus(), memory, pageId: 'c' })
+    await reloaded.ctx.plugin(pluginRow()).await()
+    reloaded.uiSession.setWait(SID, wait)
+    expect(StubNotification.created).toHaveLength(0)
   })
 })
